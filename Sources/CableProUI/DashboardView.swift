@@ -1,0 +1,210 @@
+import SwiftUI
+import Charts
+
+// The "real app" window: live power dashboard + persistent per-cable statistics.
+public struct DashboardView: View {
+    @ObservedObject var model: SnapshotModel
+    @ObservedObject var store: CableStore
+    var live: Bool = true
+    var scroll: Bool = true
+
+    public init(model: SnapshotModel, live: Bool = true, scroll: Bool = true) {
+        self.model = model
+        self.store = model.cableStore
+        self.live = live
+        self.scroll = scroll
+    }
+
+    public var body: some View {
+        ZStack {
+            Theme.backdrop
+            if scroll {
+                ScrollView { content.padding(20) }
+            } else {
+                content.padding(20)
+            }
+        }
+        .frame(minWidth: 860, minHeight: 620)
+        .onAppear { if live { model.start() } }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            header
+            statsRow
+            powerChartCard
+            cablesSection
+        }
+    }
+
+    // MARK: header + global stats
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            AppIconView().frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("PortSight").font(.system(.title, design: .rounded).weight(.bold))
+                Text("Live diagnostics & cable statistics")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer()
+            LiveDot(active: model.lastUpdate != nil)
+        }
+    }
+
+    private var statsRow: some View {
+        HStack(spacing: 12) {
+            statCard("Energy delivered", String(format: "%.3f", store.totalEnergyKWh), "kWh",
+                     "bolt.fill", .green)
+            statCard("Cables tracked", "\(store.records.count)", "catalogued",
+                     "cable.connector.horizontal", .blue)
+            statCard("Live power",
+                     model.power.map { String(format: "%.1f", Double($0.activePowerMW) / 1000) } ?? "—",
+                     "W now", "waveform.path.ecg", .teal)
+            statCard("Ports active", "\(model.ports.filter { $0.speed != nil }.count)", "with data",
+                     "app.connected.to.app.below.fill", .purple)
+        }
+    }
+
+    private func statCard(_ title: String, _ value: String, _ unit: String,
+                          _ symbol: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(title, systemImage: symbol)
+                .font(.system(.caption, design: .rounded).weight(.semibold))
+                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(value).font(.system(size: 28, weight: .bold, design: .rounded))
+                    .monospacedDigit().foregroundStyle(color)
+                Text(unit).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .cardSurface()
+    }
+
+    // MARK: live power chart
+
+    private var powerChartCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("System power").font(.system(.headline, design: .rounded))
+            let peak = max(model.samples.map(\.watts).max() ?? 1, Double(model.adapterWatts ?? 0), 1)
+            Chart(model.samples) { pt in
+                AreaMark(x: .value("t", pt.id), y: .value("W", pt.watts))
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(LinearGradient(colors: [.green.opacity(0.35), .green.opacity(0.02)],
+                                                    startPoint: .top, endPoint: .bottom))
+                LineMark(x: .value("t", pt.id), y: .value("W", pt.watts))
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(.green).lineStyle(.init(lineWidth: 2))
+            }
+            .chartYScale(domain: 0...(peak * 1.15))
+            .chartXAxis(.hidden)
+            .frame(height: 180)
+            .overlay(alignment: .center) {
+                if model.samples.isEmpty {
+                    Text("collecting samples…").font(.caption).foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(16)
+        .cardSurface()
+    }
+
+    // MARK: per-cable statistics
+
+    private var cablesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Cables").font(.system(.headline, design: .rounded))
+                Chip(text: "\(store.records.count)", color: .secondary)
+                Spacer()
+            }
+            if store.all.isEmpty {
+                Text("No e-markered cables catalogued yet. Plug in a charging cable with an e-marker chip and its stats will accumulate here.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20).cardSurface()
+            } else {
+                // Energy bar chart across cables.
+                Chart(store.all) { rec in
+                    BarMark(x: .value("kWh", rec.totalEnergyKWh),
+                            y: .value("Cable", rec.displayName))
+                        .foregroundStyle(.green.gradient)
+                        .annotation(position: .trailing) {
+                            Text(String(format: "%.2f", rec.totalEnergyKWh))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                }
+                .chartXAxisLabel("kWh delivered")
+                .frame(height: CGFloat(store.all.count) * 34 + 30)
+                .padding(14).cardSurface()
+
+                ForEach(store.all) { rec in
+                    CableRow(record: rec, store: store)
+                }
+            }
+        }
+    }
+}
+
+// One cable's detailed stats row, with rename/forget.
+struct CableRow: View {
+    let record: CableRecord
+    @ObservedObject var store: CableStore
+    @State private var renaming = false
+    @State private var draftName = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "cable.connector.horizontal").foregroundStyle(.blue)
+                Text(record.displayName).font(.system(.headline, design: .rounded))
+                if record.name != nil {
+                    Text(record.vendorName).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { draftName = record.name ?? ""; renaming = true } label: {
+                    Image(systemName: "pencil")
+                }.buttonStyle(.borderless)
+                Button(role: .destructive) { store.forget(record.fingerprint) } label: {
+                    Image(systemName: "trash")
+                }.buttonStyle(.borderless)
+            }
+            if !record.descriptor.isEmpty {
+                Text(record.descriptor).font(.caption).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 18) {
+                stat("bolt.fill", String(format: "%.3f kWh", record.totalEnergyKWh), .green)
+                stat("repeat", "\(record.connectionCount) sessions", .secondary)
+                stat("gauge.high", String(format: "%.0f W peak", record.peakWatts), .orange)
+                stat("speedometer", "\(Int(record.maxSpeedGbps.rounded()))G max", .purple)
+                stat("clock", connectedLabel, .secondary)
+            }
+            .font(.system(.caption, design: .rounded))
+        }
+        .padding(14)
+        .cardSurface()
+        .alert("Rename cable", isPresented: $renaming) {
+            TextField("Nickname", text: $draftName)
+            Button("Save") { store.rename(record.fingerprint, to: draftName) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(record.vendorName)
+        }
+    }
+
+    private func stat(_ symbol: String, _ text: String, _ color: Color) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol).foregroundStyle(color)
+            Text(text).foregroundStyle(.secondary)
+        }
+    }
+
+    private var connectedLabel: String {
+        let s = Int(record.connectedSeconds)
+        if s < 3600 { return "\(s / 60)m connected" }
+        return "\(s / 3600)h \(s % 3600 / 60)m connected"
+    }
+}

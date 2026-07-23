@@ -1,0 +1,15 @@
+# Build artifacts
+.build/
+*.app/
+
+# macOS
+.DS_Store
+
+# Xcode / SwiftPM user data
+*.xcodeproj/xcuserdata/
+.swiftpm/
+Package.resolved
+
+# Scratch
+/tmp/
+*.png.tmp
