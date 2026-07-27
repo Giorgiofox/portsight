@@ -334,6 +334,7 @@ public final class SnapshotModel: ObservableObject {
     @Published private(set) var displays: [DisplayVM] = []
     @Published private(set) var portPower: [String: PortLivePower] = [:]
     @Published private(set) var resistance: ResistanceVM?
+    @Published private(set) var connectedCableKeys: Set<String> = []
 
     /// Persistent per-cable statistics (energy, sessions, history).
     /// In preview/offscreen mode (Theme.flat) it's in-memory so real catalogued
@@ -515,6 +516,20 @@ public final class SnapshotModel: ObservableObject {
         }
         adapterWatts = snap.adapter?.watts
         isConnected = activePortCount > 0
+
+        // Fingerprints of e-markered cables connected right now, so the dashboard
+        // can highlight which catalogued cables are in use.
+        var connected = Set<String>()
+        for port in snap.ports where port.connectionActive == true {
+            if let em = snap.identities.first(where: {
+                   $0.canonicallyMatches(port: port) &&
+                   ($0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime)
+               }), let id = CableIdentity.make(from: em) {
+                connected.insert(id.key)
+            }
+        }
+        connectedCableKeys = connected
+
         updateChargingCable(snap)
         lastUpdate = Date()
     }
@@ -705,6 +720,7 @@ public final class SnapshotModel: ObservableObject {
                               fullyCharged: false, minutesToFull: 47, minutesTo80: 18,
                               minutesToEmpty: nil, watts: 94)
         m.resistance = ResistanceVM(milliohms: 128, phase: .stable, sampleCount: 40)
+        m.connectedCableKeys = ["a"]   // Anker desk charger shown as in use
         let t0 = Date(timeIntervalSince1970: 1_710_000_000)
         m.cableStore.seedPreview([
             CableRecord(fingerprint: "a", name: "Desk charger (Anker)", vendorName: "Anker",

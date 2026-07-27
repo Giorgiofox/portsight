@@ -115,6 +115,16 @@ public struct DashboardView: View {
 
     // MARK: per-cable statistics
 
+    // Currently-connected cables first, then by energy delivered.
+    private var sortedCables: [CableRecord] {
+        store.all.sorted { a, b in
+            let ca = model.connectedCableKeys.contains(a.fingerprint)
+            let cb = model.connectedCableKeys.contains(b.fingerprint)
+            if ca != cb { return ca }
+            return a.totalEnergyWh > b.totalEnergyWh
+        }
+    }
+
     private var cablesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -142,8 +152,9 @@ public struct DashboardView: View {
                 .frame(height: CGFloat(store.all.count) * 34 + 30)
                 .padding(14).cardSurface()
 
-                ForEach(store.all) { rec in
-                    CableRow(record: rec, store: store)
+                ForEach(sortedCables) { rec in
+                    CableRow(record: rec, store: store,
+                             isConnected: model.connectedCableKeys.contains(rec.fingerprint))
                 }
             }
         }
@@ -154,15 +165,23 @@ public struct DashboardView: View {
 struct CableRow: View {
     let record: CableRecord
     @ObservedObject var store: CableStore
+    var isConnected: Bool = false
     @State private var renaming = false
     @State private var draftName = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Image(systemName: "cable.connector.horizontal").foregroundStyle(.blue)
+                Image(systemName: "cable.connector.horizontal")
+                    .foregroundStyle(isConnected ? .green : .blue)
                 Text(record.displayName).font(.system(.headline, design: .rounded))
-                if record.name != nil {
+                if isConnected {
+                    Text("IN USE NOW")
+                        .font(.system(size: 9, weight: .heavy, design: .rounded))
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Capsule().fill(Color.green))
+                        .foregroundStyle(.black)
+                } else if record.name != nil {
                     Text(record.vendorName).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -190,7 +209,7 @@ struct CableRow: View {
             .font(.system(.caption, design: .rounded))
         }
         .padding(14)
-        .cardSurface()
+        .cardSurface(stroke: isConnected ? Color.green.opacity(0.65) : Theme.cardStroke)
         .alert("Rename cable", isPresented: $renaming) {
             TextField("Nickname", text: $draftName)
             Button("Save") { store.rename(record.fingerprint, to: draftName) }
