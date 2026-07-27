@@ -266,6 +266,7 @@ final class ResistanceEstimator {
     private var win: [S] = []
     private let cap = 240
     private var lastNegotiated = 0
+    private var unreliableTicks = 0
     private let minSamples = 15
     private let minSpreadMA = 120.0
 
@@ -304,6 +305,17 @@ final class ResistanceEstimator {
         else if r2 >= 0.85 { phase = .stable }
         else if r2 >= 0.55 { phase = .approx }
         else { phase = .unreliable }   // signal too well-regulated/noisy to fit
+
+        // Don't stay stuck: if it's been unreliable for a while, drop the stale
+        // noisy window and re-attempt from scratch, so a cleaner stretch (once
+        // the load settles) gets a fresh chance to converge.
+        switch phase {
+        case .stable, .approx: unreliableTicks = 0
+        case .unreliable:
+            unreliableTicks += 1
+            if unreliableTicks >= 30 { win.removeAll(); unreliableTicks = 0 }
+        default: break
+        }
         return ResistanceVM(milliohms: mOhm, phase: phase, sampleCount: n)
     }
 }
