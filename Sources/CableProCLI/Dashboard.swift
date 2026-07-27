@@ -150,9 +150,9 @@ final class Dashboard {
 
         let source: String
         if p.onBattery {
-            source = C.wrap(C.yellow, "🔋 on battery")
+            source = C.wrap(C.yellow, "on battery")
         } else if p.externalConnected {
-            source = C.wrap(C.green, "⚡ charger")
+            source = C.wrap(C.green, "charger")
         } else {
             source = C.wrap(C.dim, "—")
         }
