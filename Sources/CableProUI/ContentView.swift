@@ -54,11 +54,11 @@ public struct ContentView: View {
                 }
             }
 
-            if !model.cableStore.allChargers.isEmpty {
-                section("Chargers", count: model.cableStore.chargers.count, expanded: $showChargers) {
-                    ForEach(sortedChargers) { rec in
-                        ChargerMiniRow(record: rec,
-                                       isConnected: rec.fingerprint == model.connectedChargerKey)
+            // Only the charger(s) in use now — the full catalog lives in the dashboard.
+            if !chargersInUse.isEmpty {
+                section("Charger", count: chargersInUse.count, expanded: $showChargers) {
+                    ForEach(chargersInUse) { rec in
+                        ChargerMiniRow(record: rec, isConnected: true)
                     }
                 }
             }
@@ -72,13 +72,8 @@ public struct ContentView: View {
         }
     }
 
-    private var sortedChargers: [ChargerRecord] {
-        model.cableStore.allChargers.sorted { a, b in
-            let ca = a.fingerprint == model.connectedChargerKey
-            let cb = b.fingerprint == model.connectedChargerKey
-            if ca != cb { return ca }
-            return a.totalEnergyWh > b.totalEnergyWh
-        }
+    private var chargersInUse: [ChargerRecord] {
+        model.cableStore.allChargers.filter { $0.fingerprint == model.connectedChargerKey }
     }
 
     private var activeTag: some View {
