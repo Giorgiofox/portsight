@@ -212,7 +212,7 @@ struct PortCard: View {
     }
 
     private func formatGbps(_ g: Double) -> String {
-        g >= 1 ? "\(Int(g.rounded()))G" : "\(Int((g * 1000).rounded()))M"
+        g >= 1 ? "\(Int(g.rounded())) Gbps" : "\(Int((g * 1000).rounded())) Mbps"
     }
 
     private func activeLabel(_ g: Double) -> String {

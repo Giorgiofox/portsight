@@ -84,6 +84,9 @@ public final class CableStore: ObservableObject {
             let isReconnect = now.timeIntervalSince(rec.lastSeen) > 60
             rec.lastSeen = now
             if !descriptor.isEmpty { rec.descriptor = descriptor }
+            // Enrich the auto label once the PD brand arrives (a moment after the
+            // bare AdapterDetails one). Prefer the longer/branded label.
+            if label.count > rec.label.count { rec.label = label }
             if isReconnect { rec.sessionCount += 1 }
             chargers[fingerprint] = rec
             scheduleSave()
@@ -268,12 +271,17 @@ public enum ChargerIdentity {
         }
         if brand == nil { brand = adapter?.manufacturer ?? adapter?.name }
 
-        // Fingerprint: prefer the PD identity (brand-bearing), else AdapterDetails.
+        // STABLE fingerprint: use AdapterDetails (available from the first tick)
+        // so the record doesn't change key once the PD brand arrives a moment
+        // later — the brand only enriches the label. Fall back to the PD VID/PID
+        // only when there's no AdapterDetails at all.
         let key: String
-        if let p = partner {
-            key = String(format: "chg-%04x-%04x-%@", p.vendorID, p.productID, xidHex ?? "")
+        if let a = adapter, let w = a.watts {
+            key = "chg-\(w)-\(a.familyCode ?? 0)-\(a.adapterID ?? 0)-\(a.pmuConfiguration ?? 0)"
+        } else if let p = partner {
+            key = String(format: "chg-%04x-%04x", p.vendorID, p.productID)
         } else {
-            key = "chg-\(watts ?? 0)-\(adapter?.familyCode ?? 0)-\(adapter?.pmuConfiguration ?? 0)"
+            return nil
         }
 
         let wattLabel = watts.map { "\($0)W" }

@@ -297,7 +297,7 @@ struct CableRow: View {
                 stat("repeat", "\(record.connectionCount) sessions", .secondary)
                 stat("gauge.high", String(format: "%.0f W peak", record.peakWatts), .orange)
                 if record.maxSpeedGbps >= 1 {
-                    stat("speedometer", "\(Int(record.maxSpeedGbps.rounded()))G max", .purple)
+                    stat("speedometer", "\(Int(record.maxSpeedGbps.rounded())) Gbps max", .purple)
                 } else {
                     stat("bolt.fill", "charge-only", .secondary)
                 }
