@@ -242,6 +242,7 @@ struct PortVM: Identifiable {
 struct PortEventVM: Identifiable, Equatable {
     let id: Int
     let label: String
+    let detail: String
     let severity: SpeedVM.Severity
 }
 
@@ -535,8 +536,8 @@ public final class SnapshotModel: ObservableObject {
             let vdo = identity.map(VDOInfo.init)
             let events: [PortEventVM] = (port.portKey.flatMap { lastEventTraces[$0] }?.events ?? [])
                 .suffix(10).reversed().enumerated().map { i, e in
-                    let (label, sev) = Self.describe(e)
-                    return PortEventVM(id: i, label: label, severity: sev)
+                    let d = Self.describe(e)
+                    return PortEventVM(id: i, label: d.label, detail: d.detail, severity: d.severity)
                 }
             let devices = DeviceRowVM.rows(port.matchingDevices(from: snap.usbDevices))
             return PortVM(
@@ -617,24 +618,25 @@ public final class SnapshotModel: ObservableObject {
         }
     }
 
-    /// Map a decoded PD protocol event to a compact label + severity (#8).
-    static func describe(_ e: PDEvent) -> (String, SpeedVM.Severity) {
+    /// Map a decoded PD protocol event to a label, plain-English description,
+    /// and severity (#8).
+    static func describe(_ e: PDEvent) -> (label: String, detail: String, severity: SpeedVM.Severity) {
         switch e {
-        case .plugInsertOrRemoval: return ("Plug", .info)
-        case .prSwapComplete:      return ("PR swap", .warn)
-        case .drSwapComplete:      return ("DR swap", .warn)
-        case .sourceCapRx:         return ("Src caps", .neutral)
-        case .statusUpdate:        return ("Status", .neutral)
-        case .pdStatusUpdate:      return ("PD status", .neutral)
-        case .usb2Plug:            return ("USB2", .neutral)
-        case .powerStatusUpdate:   return ("Power", .good)
-        case .appLoaded:           return ("Init", .good)
-        case .rxIdSop:             return ("Identity", .info)
-        case .uvdmStatusUpdate:    return ("uVDM", .neutral)
-        case .uvdmEnum:            return ("uVDM enum", .neutral)
-        case .sleepWake:           return ("Sleep/Wake", .neutral)
-        case .alert:               return ("Alert", .critical)
-        case .unknown(let v):      return (String(format: "0x%02X", v), .neutral)
+        case .plugInsertOrRemoval: return ("Plug", "Connector inserted or removed", .info)
+        case .prSwapComplete:      return ("Power-role swap", "Which side supplies power was swapped", .warn)
+        case .drSwapComplete:      return ("Data-role swap", "Host/device data roles were swapped", .warn)
+        case .sourceCapRx:         return ("Source capabilities", "The charger advertised its power profiles", .neutral)
+        case .statusUpdate:        return ("Status update", "The partner reported a status change", .neutral)
+        case .pdStatusUpdate:      return ("PD status", "Power Delivery status changed", .neutral)
+        case .usb2Plug:            return ("USB 2.0 plug", "A USB 2.0 device attached", .neutral)
+        case .powerStatusUpdate:   return ("Power update", "The power contract changed", .good)
+        case .appLoaded:           return ("Controller init", "The port controller firmware started", .good)
+        case .rxIdSop:             return ("Discover Identity", "The partner reported its vendor/product ID", .info)
+        case .uvdmStatusUpdate:    return ("Vendor message", "A vendor-specific PD message (e.g. Alt Mode)", .neutral)
+        case .uvdmEnum:            return ("Vendor enumerate", "Vendor-specific enumeration", .neutral)
+        case .sleepWake:           return ("Sleep / wake", "The system slept or woke", .neutral)
+        case .alert:               return ("Alert", "Partner flagged a condition (overcurrent, temperature, battery…)", .critical)
+        case .unknown(let v):      return (String(format: "Event 0x%02X", v), "Undecoded PD event", .neutral)
         }
     }
 
@@ -736,11 +738,10 @@ public final class SnapshotModel: ObservableObject {
                                 certXIDHex: "0x1A2B3C4D", speedLabel: "40 Gbps", currentLabel: "5 A",
                                 typeLabel: "passive", maxWatts: 240, eprCapable: true,
                                 vdosHex: ["0x18000001", "0x00000000", "0x84008070", "0x00000000"]),
-                   events: [PortEventVM(id: 0, label: "Plug", severity: .info),
-                            PortEventVM(id: 1, label: "Src caps", severity: .neutral),
-                            PortEventVM(id: 2, label: "PD status", severity: .neutral),
-                            PortEventVM(id: 3, label: "Identity", severity: .info),
-                            PortEventVM(id: 4, label: "Power", severity: .good)]),
+                   events: [PortEventVM(id: 0, label: "Plug", detail: "Connector inserted or removed", severity: .info),
+                            PortEventVM(id: 1, label: "Source capabilities", detail: "The charger advertised its power profiles", severity: .neutral),
+                            PortEventVM(id: 2, label: "Discover Identity", detail: "The partner reported its vendor/product ID", severity: .info),
+                            PortEventVM(id: 3, label: "Power update", detail: "The power contract changed", severity: .good)]),
             PortVM(id: 3, portKey: "2/3", title: "Port-USB-C@3", type: "USB-C",
                    summary: PortSummary(
                        status: .displayCable,

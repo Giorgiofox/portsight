@@ -7,6 +7,7 @@ struct PortCard: View {
     // Collapsed by default live; expanded in preview (flat) so the render shows it.
     @State private var expanded = Theme.flat
     @State private var showPins = false
+    @State private var showEvents = Theme.flat   // expanded only in offscreen previews
 
     private var s: PortSummary { vm.summary }
     private var accent: Color { s.status.accent }
@@ -159,15 +160,37 @@ struct PortCard: View {
     }
 
     private var eventTrace: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("PD EVENT TRACE").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
-            FlowLayout(spacing: 4) {
-                ForEach(vm.events) { e in
-                    Text(e.label)
-                        .font(.system(size: 9, design: .rounded).weight(.medium))
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Capsule().fill(eventColor(e.severity).opacity(0.2)))
-                        .foregroundStyle(eventColor(e.severity))
+        VStack(alignment: .leading, spacing: 6) {
+            Button { withAnimation(.easeInOut(duration: 0.15)) { showEvents.toggle() } } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: showEvents ? "chevron.down" : "chevron.right")
+                    Text("PD event log").fontWeight(.semibold)
+                    Text("(\(vm.events.count))").foregroundStyle(.tertiary)
+                    Spacer()
+                }
+                .font(.system(.caption2, design: .rounded)).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+
+            if showEvents {
+                Text("Recent Power-Delivery events, newest first. A quiet log after plug-in is healthy; repeated plug/alert/role-swap events mean an unstable link.")
+                    .font(.system(size: 9)).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(vm.events) { e in
+                        HStack(alignment: .top, spacing: 7) {
+                            Circle().fill(eventColor(e.severity))
+                                .frame(width: 6, height: 6).padding(.top, 4)
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(e.label)
+                                    .font(.system(.caption2, design: .rounded).weight(.semibold))
+                                    .foregroundStyle(eventColor(e.severity) == .secondary ? .primary : eventColor(e.severity))
+                                Text(e.detail).font(.system(size: 9)).foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                    }
                 }
             }
         }
