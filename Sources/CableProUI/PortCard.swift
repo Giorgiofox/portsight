@@ -10,7 +10,7 @@ struct PortCard: View {
     private var s: PortSummary { vm.summary }
     private var accent: Color { s.status.accent }
     private var isEmpty: Bool { s.status == .empty }
-    private var hasDetails: Bool { vm.pins != nil || vm.vdo != nil || !vm.events.isEmpty }
+    private var hasDetails: Bool { vm.pins != nil || vm.vdo != nil || !vm.events.isEmpty || !vm.devices.isEmpty }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -99,7 +99,8 @@ struct PortCard: View {
                     Text("Details").fontWeight(.semibold)
                     Spacer()
                     if !expanded {
-                        Text([vm.pins != nil ? "pins" : nil,
+                        Text([vm.devices.isEmpty ? nil : "\(vm.devices.count) devices",
+                              vm.pins != nil ? "pins" : nil,
                               vm.vdo != nil ? "VDO" : nil,
                               vm.events.isEmpty ? nil : "events"]
                                 .compactMap { $0 }.joined(separator: " · "))
@@ -112,9 +113,32 @@ struct PortCard: View {
             .buttonStyle(.plain)
 
             if expanded {
+                if !vm.devices.isEmpty { deviceTree }
                 if let pins = vm.pins { PinDiagramView(diagram: pins) }
                 if let vdo = vm.vdo { VDOInspectorView(info: vdo) }
                 if !vm.events.isEmpty { eventTrace }
+            }
+        }
+    }
+
+    // MARK: - Connected devices (through this cable)
+
+    private var deviceTree: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("CONNECTED DEVICES").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
+            ForEach(vm.devices) { dev in
+                HStack(spacing: 6) {
+                    if dev.depth > 0 {
+                        Rectangle().fill(.clear).frame(width: CGFloat(dev.depth) * 14, height: 1)
+                        Image(systemName: "arrow.turn.down.right")
+                            .font(.system(size: 8)).foregroundStyle(.tertiary)
+                    }
+                    Image(systemName: dev.symbol)
+                        .font(.system(size: 10)).foregroundStyle(.blue).frame(width: 14)
+                    Text(dev.name).font(.system(.caption2, design: .rounded).weight(.medium))
+                    Text(dev.detail).font(.system(size: 9)).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
             }
         }
     }

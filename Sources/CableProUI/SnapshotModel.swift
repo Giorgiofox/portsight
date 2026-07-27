@@ -235,6 +235,7 @@ struct PortVM: Identifiable {
     var vdo: VDOInfo? = nil
     var events: [PortEventVM] = []
     var ccAdvertMA: Int? = nil    // Type-C Rp advertised current at 5V (feature #16)
+    var devices: [DeviceRowVM] = []
 }
 
 // One decoded PD protocol event (feature #8).
@@ -242,6 +243,47 @@ struct PortEventVM: Identifiable, Equatable {
     let id: Int
     let label: String
     let severity: SpeedVM.Severity
+}
+
+// A device connected downstream of a port (through the cable), as a tree row.
+struct DeviceRowVM: Identifiable, Equatable {
+    let id: UInt64
+    let name: String
+    let detail: String   // speed · power
+    let depth: Int
+    let symbol: String
+
+    static func rows(_ devices: [USBDevice]) -> [DeviceRowVM] {
+        USBDeviceNode.flatten(USBDeviceNode.buildTree(from: devices)).map { node in
+            let d = node.device
+            let name = d.productName ?? d.vendorName
+                ?? String(format: "%04X:%04X", d.vendorID, d.productID)
+            var parts = [shortSpeed(d.speedLabel)]
+            if let mA = d.currentMA ?? d.busPowerMA, mA > 0 { parts.append("\(mA) mA") }
+            return DeviceRowVM(id: d.id, name: name,
+                               detail: parts.joined(separator: " · "),
+                               depth: node.depth, symbol: symbol(for: d.deviceClass))
+        }
+    }
+
+    private static func shortSpeed(_ label: String) -> String {
+        if let o = label.firstIndex(of: "("), let c = label.firstIndex(of: ")"), o < c {
+            return String(label[label.index(after: o)..<c])
+        }
+        return label
+    }
+
+    private static func symbol(for deviceClass: UInt8?) -> String {
+        switch deviceClass {
+        case 0x03: return "keyboard"                                  // HID
+        case 0x0e: return "camera"                                    // video
+        case 0x08: return "externaldrive"                             // mass storage
+        case 0x09: return "point.3.connected.trianglepath.dotted"     // hub
+        case 0x01: return "speaker.wave.2"                            // audio
+        case 0x02, 0xE0: return "network"                             // comms/wireless
+        default:   return "cable.connector.horizontal"
+        }
+    }
 }
 
 /// Max power samples retained (1 Hz). The chart's X axis always spans exactly
@@ -496,6 +538,7 @@ public final class SnapshotModel: ObservableObject {
                     let (label, sev) = Self.describe(e)
                     return PortEventVM(id: i, label: label, severity: sev)
                 }
+            let devices = DeviceRowVM.rows(port.matchingDevices(from: snap.usbDevices))
             return PortVM(
                 id: port.id,
                 portKey: port.portKey,
@@ -510,7 +553,8 @@ public final class SnapshotModel: ObservableObject {
                 pins: pins,
                 vdo: vdo,
                 events: events,
-                ccAdvertMA: ccAdvertMA
+                ccAdvertMA: ccAdvertMA,
+                devices: devices
             )
         }
         displays = snap.displayPorts.enumerated().compactMap { i, dp in
@@ -708,7 +752,15 @@ public final class SnapshotModel: ObservableObject {
                                   limit: .cable, verdict: "Cable limits", severity: .warn,
                                   summary: "This cable caps the link at 10 Gbps — the Mac and device both support 40.",
                                   isWarning: true),
-                   health: noHealth, pdOptions: [], pdWinning: nil),
+                   health: noHealth, pdOptions: [], pdWinning: nil,
+                   devices: [
+                       DeviceRowVM(id: 91, name: "Studio Display", detail: "5 Gbps · hub", depth: 0,
+                                   symbol: "point.3.connected.trianglepath.dotted"),
+                       DeviceRowVM(id: 92, name: "Magic Keyboard", detail: "12 Mbps · 100 mA", depth: 1,
+                                   symbol: "keyboard"),
+                       DeviceRowVM(id: 93, name: "FaceTime HD Camera", detail: "480 Mbps · 500 mA", depth: 1,
+                                   symbol: "camera"),
+                   ]),
             PortVM(id: 4, portKey: "17/1", title: "Port-MagSafe 3@1", type: "MagSafe 3",
                    summary: PortSummary(
                        status: .empty,
