@@ -7,13 +7,12 @@ struct PortCard: View {
     // Collapsed by default live; expanded in preview (flat) so the render shows it.
     @State private var expanded = Theme.flat
     @State private var showPins = false
-    @State private var showEvents = Theme.flat   // expanded only in offscreen previews
     @State private var showVDO = false
 
     private var s: PortSummary { vm.summary }
     private var accent: Color { s.status.accent }
     private var isEmpty: Bool { s.status == .empty }
-    private var hasDetails: Bool { vm.pins != nil || vm.vdo != nil || !vm.events.isEmpty || !vm.devices.isEmpty }
+    private var hasDetails: Bool { vm.pins != nil || vm.vdo != nil || !vm.devices.isEmpty }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -104,8 +103,7 @@ struct PortCard: View {
                     if !expanded {
                         Text([vm.devices.isEmpty ? nil : "\(vm.devices.count) devices",
                               vm.pins != nil ? "pins" : nil,
-                              vm.vdo != nil ? "VDO" : nil,
-                              vm.events.isEmpty ? nil : "events"]
+                              vm.vdo != nil ? "VDO" : nil]
                                 .compactMap { $0 }.joined(separator: " · "))
                             .foregroundStyle(.tertiary)
                     }
@@ -118,7 +116,6 @@ struct PortCard: View {
             if expanded {
                 if !vm.devices.isEmpty { deviceTree }
                 if let vdo = vm.vdo { vdoSection(vdo) }
-                if !vm.events.isEmpty { eventTrace }
                 if let pins = vm.pins {
                     VStack(alignment: .leading, spacing: 6) {
                         Button { withAnimation(.easeInOut(duration: 0.15)) { showPins.toggle() } } label: {
@@ -177,53 +174,6 @@ struct PortCard: View {
                     .fixedSize(horizontal: false, vertical: true)
                 VDOInspectorView(info: vdo)
             }
-        }
-    }
-
-    private var eventTrace: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button { withAnimation(.easeInOut(duration: 0.15)) { showEvents.toggle() } } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: showEvents ? "chevron.down" : "chevron.right")
-                    Text("PD event history").fontWeight(.semibold)
-                    Text("(\(vm.events.count))").foregroundStyle(.tertiary)
-                    Spacer()
-                }
-                .font(.system(.caption2, design: .rounded)).foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-
-            if showEvents {
-                Text("The controller keeps the ORDER of recent PD events, not timestamps — newest first. A short burst at plug-in is normal; a repeated Alert just means the partner keeps reporting status changes. Continuous plug / role-swap churn is what signals an unstable link.")
-                    .font(.system(size: 9)).foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-                VStack(alignment: .leading, spacing: 5) {
-                    ForEach(vm.events) { e in
-                        HStack(alignment: .top, spacing: 7) {
-                            Circle().fill(eventColor(e.severity))
-                                .frame(width: 6, height: 6).padding(.top, 4)
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text(e.label)
-                                    .font(.system(.caption2, design: .rounded).weight(.semibold))
-                                    .foregroundStyle(eventColor(e.severity) == .secondary ? .primary : eventColor(e.severity))
-                                Text(e.detail).font(.system(size: 9)).foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func eventColor(_ s: SpeedVM.Severity) -> Color {
-        switch s {
-        case .good: return .green
-        case .warn: return .orange
-        case .info: return .blue
-        case .neutral: return .secondary
-        case .critical: return .red
         }
     }
 
