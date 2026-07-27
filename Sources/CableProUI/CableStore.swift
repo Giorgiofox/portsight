@@ -229,17 +229,45 @@ public enum CableIdentity {
 }
 
 public enum ChargerIdentity {
-    /// Fingerprint a charger from its AdapterDetails. nil for no external adapter.
-    public static func make(from a: AdapterInfo) -> (key: String, label: String, descriptor: String)? {
-        guard let watts = a.watts, watts > 0 else { return nil }
-        // Model/type-level key: watts + controller family/id/config (+ name if any).
-        let name = a.name ?? a.model ?? a.manufacturer ?? ""
-        let key = "chg-\(watts)-\(a.familyCode ?? 0)-\(a.adapterID ?? 0)-\(a.pmuConfiguration ?? 0)-\(name)"
-        let label = a.name ?? a.manufacturer ?? a.adapterDescription ?? "\(watts)W charger"
-        var descriptor = "\(watts)W"
-        if let v = a.voltageMV, let c = a.currentMA, v > 0, c > 0 {
-            descriptor += String(format: " · %.0fV/%.1fA", Double(v) / 1000, Double(c) / 1000)
+    /// Fingerprint a charger. Brand/serial come from the charger's USB-PD
+    /// Discover Identity (`partner`, the SOP port-partner): its VID maps to a
+    /// manufacturer via the USB-IF DB, and the Cert-Stat XID acts as a
+    /// (model-level) ID. Watts/PD profile come from `adapter` (AdapterDetails).
+    public static func make(adapter: AdapterInfo?, partner: USBPDSOP?)
+        -> (key: String, label: String, descriptor: String)? {
+        let watts = adapter?.watts
+        guard watts != nil || partner != nil else { return nil }
+
+        // Brand + IDs from the PD port-partner identity.
+        var brand: String?
+        var vidHex: String?
+        var xidHex: String?
+        if let p = partner {
+            brand = CableDB.vendorName(vid: p.vendorID)
+            vidHex = String(format: "0x%04X", p.vendorID)
+            if let cs = p.certStatVDO, cs.isPresent { xidHex = String(format: "0x%08X", cs.xid) }
         }
-        return (key, label, descriptor)
+        if brand == nil { brand = adapter?.manufacturer ?? adapter?.name }
+
+        // Fingerprint: prefer the PD identity (brand-bearing), else AdapterDetails.
+        let key: String
+        if let p = partner {
+            key = String(format: "chg-%04x-%04x-%@", p.vendorID, p.productID, xidHex ?? "")
+        } else {
+            key = "chg-\(watts ?? 0)-\(adapter?.familyCode ?? 0)-\(adapter?.pmuConfiguration ?? 0)"
+        }
+
+        let wattLabel = watts.map { "\($0)W" }
+        let label = [brand, wattLabel].compactMap { $0 }.joined(separator: " ")
+        let finalLabel = label.isEmpty ? "USB-C charger" : label
+
+        var parts: [String] = []
+        if let w = watts { parts.append("\(w)W") }
+        if let v = adapter?.voltageMV, let c = adapter?.currentMA, v > 0, c > 0 {
+            parts.append(String(format: "%.0fV/%.1fA", Double(v) / 1000, Double(c) / 1000))
+        }
+        if let vh = vidHex { parts.append("VID \(vh)") }
+        if let x = xidHex { parts.append("ID \(x)") }
+        return (key, finalLabel, parts.joined(separator: " · "))
     }
 }

@@ -536,26 +536,38 @@ public final class SnapshotModel: ObservableObject {
         lastUpdate = Date()
     }
 
-    /// Find the e-markered cable on the charging port and register it, so power
-    /// ticks can attribute delivered energy to it.
+    /// Identify + register the cable AND charger currently delivering power, so
+    /// power ticks can attribute delivered energy to each.
     private func updateChargingCable(_ snap: CableSnapshot) {
-        let chargingPort = snap.ports.first { port in
+        chargingCableKey = nil
+        chargingChargerKey = nil
+        guard let port = snap.ports.first(where: { port in
             port.connectionActive == true &&
             snap.powerSources.contains { $0.canonicallyMatches(port: port) && $0.winning != nil }
+        }) else { return }
+        let now = Date()
+
+        // Cable (from its e-marker SOP'/SOP'').
+        if let emarker = snap.identities.first(where: {
+                $0.canonicallyMatches(port: port) &&
+                ($0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime)
+            }), let id = CableIdentity.make(from: emarker) {
+            let speedGbps = ports.first { $0.id == port.id }?.speed?.activeGbps ?? 0
+            cableStore.observe(fingerprint: id.key, vendorName: id.vendor,
+                               descriptor: id.descriptor, speedGbps: speedGbps, now: now)
+            chargingCableKey = id.key
         }
-        guard let port = chargingPort,
-              let emarker = snap.identities.first(where: {
-                  $0.canonicallyMatches(port: port) &&
-                  ($0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime)
-              }),
-              let id = CableIdentity.make(from: emarker) else {
-            chargingCableKey = nil
-            return
+
+        // Charger: brand/serial from its PD Discover Identity (SOP port partner),
+        // watts/PD profile from AdapterDetails.
+        let partner = snap.identities.first {
+            $0.canonicallyMatches(port: port) && $0.endpoint == .sop
         }
-        let speedGbps = ports.first { $0.id == port.id }?.speed?.activeGbps ?? 0
-        cableStore.observe(fingerprint: id.key, vendorName: id.vendor,
-                           descriptor: id.descriptor, speedGbps: speedGbps, now: Date())
-        chargingCableKey = id.key
+        if let cid = ChargerIdentity.make(adapter: snap.adapter, partner: partner) {
+            cableStore.observeCharger(fingerprint: cid.key, label: cid.label,
+                                      descriptor: cid.descriptor, now: now)
+            chargingChargerKey = cid.key
+        }
     }
 
     /// Map a decoded PD protocol event to a compact label + severity (#8).
@@ -596,20 +608,14 @@ public final class SnapshotModel: ObservableObject {
         portPower = pp
         // Battery telemetry + our own smoothed prediction. pmset (a subprocess)
         // is refreshed every ~3s as a cross-reference, not every tick.
+        // Charger cataloging happens in updateChargingCable (it has the PD
+        // partner identity). Here we only need the negotiated voltage.
         var negotiatedMV = 0
-        chargingChargerKey = nil
         if let b = AppleSmartBatteryReader.read().battery {
             pmsetTick += 1
             if lastPmset == nil || pmsetTick % 3 == 0 { lastPmset = PmsetReader.read() }
             battery = batteryEstimator.update(b, pmset: lastPmset)
             negotiatedMV = b.adapterDetails?.voltageMV ?? 0
-            // Catalog the charger (brick) currently delivering power.
-            if !snap.onBattery, snap.externalConnected, let adapter = b.adapterDetails,
-               let id = ChargerIdentity.make(from: adapter) {
-                cableStore.observeCharger(fingerprint: id.key, label: id.label,
-                                          descriptor: id.descriptor, now: Date())
-                chargingChargerKey = id.key
-            }
         } else {
             battery = nil
         }
