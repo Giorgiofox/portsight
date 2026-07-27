@@ -189,7 +189,10 @@ public final class CableStore: ObservableObject {
         guard let data = try? Data(contentsOf: url) else { return }
         if let p = try? JSONDecoder().decode(Persisted.self, from: data) {
             records = p.cables
-            chargers = p.chargers
+            // Drop charger records saved under an old, unstable key scheme so the
+            // catalog self-heals to one entry per charger (keyed by VID+PID).
+            chargers = p.chargers.filter { $0.key.range(of: ChargerIdentity.keyRegex,
+                                                        options: .regularExpression) != nil }
         } else if let old = try? JSONDecoder().decode([String: CableRecord].self, from: data) {
             records = old   // migrate pre-charger format
         }
@@ -255,45 +258,40 @@ public enum ChargerIdentity {
     /// Discover Identity (`partner`, the SOP port-partner): its VID maps to a
     /// manufacturer via the USB-IF DB, and the Cert-Stat XID acts as a
     /// (model-level) ID. Watts/PD profile come from `adapter` (AdapterDetails).
+    /// Canonical charger key: "chg-<vid>-<pid>" (lowercase hex). Stable across
+    /// reconnects and across watt renegotiations of the same charger.
+    static let keyRegex = "^chg-[0-9a-f]{4}-[0-9a-f]{4}$"
+
     public static func make(adapter: AdapterInfo?, partner: USBPDSOP?)
         -> (key: String, label: String, descriptor: String)? {
-        let watts = adapter?.watts
-        guard watts != nil || partner != nil else { return nil }
+        // Require the PD Discover Identity: its VID+PID is the only stable key.
+        // (AdapterDetails watts fluctuate — e.g. a monitor negotiating 60↔90W —
+        // so keying on them spawns duplicates.) Chargers that don't advertise a
+        // PD identity aren't catalogued.
+        guard let p = partner else { return nil }
 
-        // Brand + IDs from the PD port-partner identity.
-        var brand: String?
-        var vidHex: String?
-        var xidHex: String?
-        if let p = partner {
-            brand = CableDB.vendorName(vid: p.vendorID)
-            vidHex = String(format: "0x%04X", p.vendorID)
-            if let cs = p.certStatVDO, cs.isPresent { xidHex = String(format: "0x%08X", cs.xid) }
-        }
-        if brand == nil { brand = adapter?.manufacturer ?? adapter?.name }
+        let brand = CableDB.vendorName(vid: p.vendorID) ?? adapter?.manufacturer ?? adapter?.name
+        let vidHex = String(format: "0x%04X", p.vendorID)
+        let xidHex: String? = (p.certStatVDO.flatMap { $0.isPresent ? String(format: "0x%08X", $0.xid) : nil })
 
-        // STABLE fingerprint: use AdapterDetails (available from the first tick)
-        // so the record doesn't change key once the PD brand arrives a moment
-        // later — the brand only enriches the label. Fall back to the PD VID/PID
-        // only when there's no AdapterDetails at all.
-        let key: String
-        if let a = adapter, let w = a.watts {
-            key = "chg-\(w)-\(a.familyCode ?? 0)-\(a.adapterID ?? 0)-\(a.pmuConfiguration ?? 0)"
-        } else if let p = partner {
-            key = String(format: "chg-%04x-%04x", p.vendorID, p.productID)
-        } else {
-            return nil
-        }
+        // Rated (max) watts from the charger's PD/HVC profile menu, so the label
+        // stays put instead of flipping with the momentary negotiated contract.
+        let maxW: Int? = {
+            let hvcMax = adapter?.hvcMenu.map(\.wattsInt).max() ?? 0
+            let w = max(hvcMax, adapter?.watts ?? 0)
+            return w > 0 ? w : nil
+        }()
 
-        let wattLabel = watts.map { "\($0)W" }
-        let label = [brand, wattLabel].compactMap { $0 }.joined(separator: " ")
+        let key = String(format: "chg-%04x-%04x", p.vendorID, p.productID)
+        let label = [brand, maxW.map { "\($0)W" }].compactMap { $0 }.joined(separator: " ")
         let finalLabel = label.isEmpty ? "USB-C charger" : label
 
         var parts: [String] = []
-        if let w = watts { parts.append("\(w)W") }
+        if let w = maxW { parts.append("\(w)W") }
         if let v = adapter?.voltageMV, let c = adapter?.currentMA, v > 0, c > 0 {
             parts.append(String(format: "%.0fV/%.1fA", Double(v) / 1000, Double(c) / 1000))
         }
-        if let vh = vidHex { parts.append("VID \(vh)") }
+        parts.append("VID \(vidHex)")
         if let x = xidHex { parts.append("ID \(x)") }
         return (key, finalLabel, parts.joined(separator: " · "))
     }

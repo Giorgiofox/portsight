@@ -33,6 +33,7 @@ public struct DashboardView: View {
             header
             statsRow
             powerChartCard
+            energyChartCard
             cablesSection
             chargersSection
         }
@@ -139,25 +140,62 @@ public struct DashboardView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(20).cardSurface()
             } else {
-                // Energy bar chart across cables.
-                Chart(store.all) { rec in
-                    BarMark(x: .value("kWh", rec.totalEnergyKWh),
-                            y: .value("Cable", rec.displayName))
-                        .foregroundStyle(.green.gradient)
-                        .annotation(position: .trailing) {
-                            Text(String(format: "%.2f", rec.totalEnergyKWh))
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                }
-                .chartXAxisLabel("kWh delivered")
-                .frame(height: CGFloat(store.all.count) * 34 + 30)
-                .padding(14).cardSurface()
-
                 ForEach(sortedCables) { rec in
                     CableRow(record: rec, store: store,
                              isConnected: model.connectedCableKeys.contains(rec.fingerprint))
                 }
             }
+        }
+    }
+
+    // MARK: energy delivered (cables + chargers)
+
+    struct EnergyBar: Identifiable {
+        let id: String
+        let label: String
+        let kWh: Double
+        let isCharger: Bool
+    }
+
+    private var energyBars: [EnergyBar] {
+        let cables = store.all.map {
+            EnergyBar(id: "cable-\($0.fingerprint)", label: $0.displayName,
+                      kWh: $0.totalEnergyKWh, isCharger: false)
+        }
+        let chargers = store.allChargers.map {
+            EnergyBar(id: "charger-\($0.fingerprint)", label: $0.displayName,
+                      kWh: $0.totalEnergyKWh, isCharger: true)
+        }
+        return (cables + chargers).sorted { $0.kWh > $1.kWh }
+    }
+
+    @ViewBuilder private var energyChartCard: some View {
+        if !energyBars.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    Text("Energy delivered").font(.system(.headline, design: .rounded))
+                    legendDot(.green, "cables"); legendDot(.orange, "chargers")
+                    Spacer()
+                }
+                Chart(energyBars) { bar in
+                    BarMark(x: .value("kWh", bar.kWh), y: .value("Source", bar.label))
+                        .foregroundStyle((bar.isCharger ? Color.orange : .green).gradient)
+                        .annotation(position: .trailing) {
+                            Text(String(format: "%.3f", bar.kWh))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                }
+                .chartXAxisLabel("kWh")
+                .frame(height: CGFloat(energyBars.count) * 32 + 30)
+            }
+            .padding(16).cardSurface()
+        }
+    }
+
+    private func legendDot(_ color: Color, _ text: String) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(text).font(.caption2).foregroundStyle(.secondary)
         }
     }
 
@@ -214,9 +252,11 @@ struct ChargerRow: View {
                 Button { draftName = record.name ?? ""; renaming = true } label: {
                     iconChip("pencil", .secondary)
                 }.buttonStyle(.plain)
-                Button { store.forgetCharger(record.fingerprint) } label: {
-                    iconChip("trash", .red)
-                }.buttonStyle(.plain)
+                if !isConnected {
+                    Button { store.forgetCharger(record.fingerprint) } label: {
+                        iconChip("trash", .red)
+                    }.buttonStyle(.plain)
+                }
             }
             if !record.descriptor.isEmpty {
                 Text(record.descriptor).font(.caption).foregroundStyle(.secondary)
@@ -285,9 +325,11 @@ struct CableRow: View {
                 Button { draftName = record.name ?? ""; renaming = true } label: {
                     iconChip("pencil", .secondary)
                 }.buttonStyle(.plain)
-                Button { store.forget(record.fingerprint) } label: {
-                    iconChip("trash", .red)
-                }.buttonStyle(.plain)
+                if !isConnected {
+                    Button { store.forget(record.fingerprint) } label: {
+                        iconChip("trash", .red)
+                    }.buttonStyle(.plain)
+                }
             }
             if !record.descriptor.isEmpty {
                 Text(record.descriptor).font(.caption).foregroundStyle(.secondary)
