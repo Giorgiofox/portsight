@@ -8,6 +8,7 @@ struct PortCard: View {
     @State private var expanded = Theme.flat
     @State private var showPins = false
     @State private var showEvents = Theme.flat   // expanded only in offscreen previews
+    @State private var showVDO = false
 
     private var s: PortSummary { vm.summary }
     private var accent: Color { s.status.accent }
@@ -116,7 +117,7 @@ struct PortCard: View {
 
             if expanded {
                 if !vm.devices.isEmpty { deviceTree }
-                if let vdo = vm.vdo { VDOInspectorView(info: vdo) }
+                if let vdo = vm.vdo { vdoSection(vdo) }
                 if !vm.events.isEmpty { eventTrace }
                 if let pins = vm.pins {
                     VStack(alignment: .leading, spacing: 6) {
@@ -159,12 +160,32 @@ struct PortCard: View {
         }
     }
 
+    private func vdoSection(_ vdo: VDOInfo) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { withAnimation(.easeInOut(duration: 0.15)) { showVDO.toggle() } } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: showVDO ? "chevron.down" : "chevron.right")
+                    Text("PD identity (VDO)").fontWeight(.semibold)
+                    Spacer()
+                }
+                .font(.system(.caption2, design: .rounded)).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            if showVDO {
+                Text("USB-PD Discover Identity: the handshake where the device or cable declares who made it (Vendor ID), which product (Product ID), and its raw Vendor Data Objects. Mostly useful to identify no-name gear.")
+                    .font(.system(size: 9)).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                VDOInspectorView(info: vdo)
+            }
+        }
+    }
+
     private var eventTrace: some View {
         VStack(alignment: .leading, spacing: 6) {
             Button { withAnimation(.easeInOut(duration: 0.15)) { showEvents.toggle() } } label: {
                 HStack(spacing: 4) {
                     Image(systemName: showEvents ? "chevron.down" : "chevron.right")
-                    Text("PD event log").fontWeight(.semibold)
+                    Text("PD event history").fontWeight(.semibold)
                     Text("(\(vm.events.count))").foregroundStyle(.tertiary)
                     Spacer()
                 }
@@ -173,7 +194,7 @@ struct PortCard: View {
             .buttonStyle(.plain)
 
             if showEvents {
-                Text("Recent Power-Delivery events, newest first. A quiet log after plug-in is healthy; repeated plug/alert/role-swap events mean an unstable link.")
+                Text("The controller keeps the ORDER of recent PD events, not timestamps — newest first. A short burst at plug-in is normal; a repeated Alert just means the partner keeps reporting status changes. Continuous plug / role-swap churn is what signals an unstable link.")
                     .font(.system(size: 9)).foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: 5) {
