@@ -167,11 +167,11 @@ struct CableRow: View {
                 }
                 Spacer()
                 Button { draftName = record.name ?? ""; renaming = true } label: {
-                    Image(systemName: "pencil")
-                }.buttonStyle(.borderless)
-                Button(role: .destructive) { store.forget(record.fingerprint) } label: {
-                    Image(systemName: "trash")
-                }.buttonStyle(.borderless)
+                    iconChip("pencil", .secondary)
+                }.buttonStyle(.plain)
+                Button { store.forget(record.fingerprint) } label: {
+                    iconChip("trash", .red)
+                }.buttonStyle(.plain)
             }
             if !record.descriptor.isEmpty {
                 Text(record.descriptor).font(.caption).foregroundStyle(.secondary)
@@ -205,6 +205,14 @@ struct CableRow: View {
             Image(systemName: symbol).foregroundStyle(color)
             Text(text).foregroundStyle(.secondary)
         }
+    }
+
+    private func iconChip(_ symbol: String, _ color: Color) -> some View {
+        Image(systemName: symbol)
+            .font(.caption)
+            .foregroundStyle(color)
+            .frame(width: 26, height: 22)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06)))
     }
 
     private var connectedLabel: String {

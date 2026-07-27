@@ -16,13 +16,13 @@ Requires macOS 14+ on Apple Silicon.
 ## Screenshots
 
 <p align="center">
-  <img src="docs/dashboard.png" width="760" alt="PortSight dashboard window with live power chart and per-cable statistics"><br>
-  <em>Dashboard — live power chart and per-cable energy statistics</em>
+  <img src="docs/popover.png" width="340" alt="PortSight menu bar popover"><br>
+  <em>Menu bar — power, battery ETA, cable speed, port health</em>
 </p>
 
 <p align="center">
-  <img src="docs/popover.png" width="340" alt="PortSight menu bar popover"><br>
-  <em>Menu bar — power, battery ETA, cable speed, port health</em>
+  <img src="docs/dashboard.png" width="760" alt="PortSight dashboard window with live power chart and per-cable statistics"><br>
+  <em>Dashboard — live power chart and per-cable energy statistics</em>
 </p>
 
 ## Features
