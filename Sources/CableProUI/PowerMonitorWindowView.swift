@@ -78,7 +78,7 @@ public struct PowerMonitorWindowView: View {
                 .interpolationMethod(.monotone)
                 .foregroundStyle(accent).lineStyle(.init(lineWidth: 2.5))
         }
-        .chartXScale(domain: 0...Double(powerSampleCap))
+        .chartXScale(domain: 0...Double(max(model.samples.count - 1, 1)))
         .chartYScale(domain: 0...(peak * 1.15))
         .chartXAxis(.hidden)
         .frame(minHeight: 220)

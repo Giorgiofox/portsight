@@ -72,7 +72,7 @@ public struct ContentView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            LiveDot(active: model.lastUpdate != nil)
+            LiveDot(date: model.lastUpdate)
         }
     }
 
@@ -165,23 +165,29 @@ public struct ContentView: View {
     }
 }
 
-// Subtle pulsing "live" indicator.
+// Freshness indicator: a pulsing dot plus the time of the last update, so it
+// actually tells you the data is current (and when it last refreshed).
 struct LiveDot: View {
-    let active: Bool
+    let date: Date?
     @State private var pulse = false
+
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f
+    }()
 
     var body: some View {
         HStack(spacing: 5) {
             Circle()
-                .fill(active ? Color.green : Color.secondary)
+                .fill(date != nil ? Color.green : Color.secondary)
                 .frame(width: 7, height: 7)
                 .scaleEffect(pulse ? 1.0 : 0.7)
                 .opacity(pulse ? 1.0 : 0.5)
                 .animation(.easeInOut(duration: 1).repeatForever(autoreverses: true), value: pulse)
-            Text(active ? "Live" : "…")
+            Text(date.map { "Updated \(Self.formatter.string(from: $0))" } ?? "Starting…")
                 .font(.system(.caption2, design: .rounded).weight(.semibold))
                 .foregroundStyle(.secondary)
+                .monospacedDigit()
         }
-        .onAppear { if active { pulse = true } }
+        .onAppear { pulse = true }
     }
 }

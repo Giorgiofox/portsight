@@ -244,9 +244,11 @@ struct PortEventVM: Identifiable, Equatable {
     let severity: SpeedVM.Severity
 }
 
-/// Number of power samples retained/plotted. At 1 Hz this is the width of the
-/// live chart's time window; the chart fills left→right until it's reached.
-let powerSampleCap = 240   // ~4 minutes
+/// Max power samples retained (1 Hz). The chart's X axis always spans exactly
+/// the samples collected, so the line fills the full width from the start and
+/// compresses as more data accumulates — the whole session stays in view.
+/// Capped at ~1 h to bound memory/rendering (rolls after that).
+let powerSampleCap = 3600
 
 // Cable resistance estimate (our own, system-level). WhatCable's per-port
 // regression needs per-port telemetry that laptops don't expose, so instead we
@@ -675,8 +677,8 @@ public final class SnapshotModel: ObservableObject {
                    speed: nil,
                    health: noHealth, pdOptions: [], pdWinning: nil),
         ]
-        // Rising-then-steady power curve filling the whole window.
-        m.samples = (0..<powerSampleCap).map { i in
+        // Rising-then-steady power curve for a sample session.
+        m.samples = (0..<200).map { i in
             let w = i < 30 ? Double(i) * 3.0 : 88 + Double((i * 7) % 13)
             return PowerPoint(id: i, watts: w)
         }

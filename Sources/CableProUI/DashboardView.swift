@@ -49,7 +49,7 @@ public struct DashboardView: View {
                     .font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
-            LiveDot(active: model.lastUpdate != nil)
+            LiveDot(date: model.lastUpdate)
         }
     }
 
@@ -99,7 +99,7 @@ public struct DashboardView: View {
                     .interpolationMethod(.monotone)
                     .foregroundStyle(.green).lineStyle(.init(lineWidth: 2))
             }
-            .chartXScale(domain: 0...Double(powerSampleCap))
+            .chartXScale(domain: 0...Double(max(model.samples.count - 1, 1)))
             .chartYScale(domain: 0...(peak * 1.15))
             .chartXAxis(.hidden)
             .frame(height: 180)

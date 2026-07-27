@@ -152,7 +152,7 @@ struct PowerCard: View {
                 .foregroundStyle(accent)
                 .lineStyle(.init(lineWidth: 2))
         }
-        .chartXScale(domain: 0...Double(powerSampleCap))
+        .chartXScale(domain: 0...Double(max(samples.count - 1, 1)))
         .chartYScale(domain: 0...(peak * 1.15))
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
