@@ -1,6 +1,10 @@
-# PortSight
+<p align="center">
+  <img src="docs/icon.png" width="120" alt="PortSight icon">
+</p>
 
-**Super-nerdy USB-C diagnostics for Apple Silicon Macs.**
+<h1 align="center">PortSight</h1>
+
+<p align="center"><b>Super-nerdy USB-C diagnostics for Apple Silicon Macs.</b></p>
 
 PortSight lives in your menu bar and tells you what every USB-C cable and port
 on your Mac is actually doing — negotiated speed, power delivery, health, and
@@ -8,6 +12,18 @@ more — plus a full dashboard window with live charts and **per-cable lifetime
 statistics** (energy delivered, sessions, peak power, top speed).
 
 Requires macOS 14+ on Apple Silicon.
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/dashboard.png" width="760" alt="PortSight dashboard window with live power chart and per-cable statistics"><br>
+  <em>Dashboard — live power chart and per-cable energy statistics</em>
+</p>
+
+<p align="center">
+  <img src="docs/popover.png" width="340" alt="PortSight menu bar popover"><br>
+  <em>Menu bar — power, battery ETA, cable speed, port health</em>
+</p>
 
 ## Features
 
