@@ -56,15 +56,30 @@ cablepro --monitor       stream live power + battery + cable state
 cablepro --dashboard     full-screen terminal dashboard
 ```
 
-## Build
+## Install (prebuilt)
+
+1. Download `PortSight.zip` from the [latest release](https://github.com/Giorgiofox/portsight/releases/latest).
+2. Unzip and move `PortSight.app` to `/Applications`.
+3. The app is ad-hoc signed (no paid Developer ID), so macOS Gatekeeper
+   quarantines it on first launch. Clear the quarantine flag once:
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/PortSight.app
+   ```
+   (or right-click the app → **Open** → **Open** the first time)
+4. Launch it — the PortSight icon appears in the menu bar (no Dock icon).
+
+## Build from source
 
 ```sh
+git clone git@github.com:Giorgiofox/portsight.git
+cd portsight
 swift build                 # builds cablepro (CLI) + CablePro (app)
 ./scripts/make-icon.sh      # generate the app icon
 ./scripts/bundle-app.sh     # → PortSight.app (menu-bar agent)
 open PortSight.app
 ```
 
+Requires the Swift toolchain (Command Line Tools are enough — no full Xcode).
 Per-cable statistics persist to `~/Library/Application Support/PortSight/`.
 
 ## Notes

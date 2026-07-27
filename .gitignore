@@ -13,3 +13,7 @@ Package.resolved
 # Scratch
 /tmp/
 *.png.tmp
+
+# Release artifacts
+*.zip
+dist/
