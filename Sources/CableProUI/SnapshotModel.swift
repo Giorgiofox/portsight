@@ -552,7 +552,10 @@ public final class SnapshotModel: ObservableObject {
                 $0.canonicallyMatches(port: port) &&
                 ($0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime)
             }), let id = CableIdentity.make(from: emarker) {
-            let speedGbps = ports.first { $0.id == port.id }?.speed?.activeGbps ?? 0
+            // Cable capability = max of its rated e-marker speed and whatever the
+            // port currently negotiated (so a data-capable cable is never "charge-only").
+            let sp = ports.first { $0.id == port.id }?.speed
+            let speedGbps = max(id.ratedGbps, sp?.activeGbps ?? 0, sp?.cableGbps ?? 0)
             cableStore.observe(fingerprint: id.key, vendorName: id.vendor,
                                descriptor: id.descriptor, speedGbps: speedGbps, now: now)
             chargingCableKey = id.key

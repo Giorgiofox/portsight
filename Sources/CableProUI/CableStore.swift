@@ -214,8 +214,11 @@ public final class CableStore: ObservableObject {
 // MARK: - Fingerprint derivation
 
 public enum CableIdentity {
-    /// Build a stable fingerprint key + descriptor from a cable e-marker identity.
-    public static func make(from identity: USBPDSOP) -> (key: String, vendor: String, descriptor: String)? {
+    /// Build a stable fingerprint key + descriptor + rated speed from a cable
+    /// e-marker identity. `ratedGbps` is the cable's own capability (from its
+    /// e-marker), independent of the link currently negotiated on the port.
+    public static func make(from identity: USBPDSOP)
+        -> (key: String, vendor: String, descriptor: String, ratedGbps: Double)? {
         let fp = CableReport.CableFingerprint(identity: identity)
         guard fp.hasEmarker else { return nil }
         let vdoKey = fp.vdos.map { String($0, radix: 16) }.joined(separator: ".")
@@ -224,7 +227,23 @@ public enum CableIdentity {
         if let s = fp.speed { parts.append(s) }
         if let w = fp.maxWatts { parts.append("\(w)W") }
         if let t = fp.type { parts.append(t) }
-        return (key, fp.vendorName, parts.joined(separator: " · "))
+        return (key, fp.vendorName, parts.joined(separator: " · "), gbps(from: fp.speed))
+    }
+
+    /// Parse a Gbps figure from an e-marker speed label like
+    /// "USB 3.2 Gen 1 (5 Gbps)" / "40 Gbps" / "USB 2.0 (480 Mbps)".
+    static func gbps(from label: String?) -> Double {
+        guard let s = label else { return 0 }
+        func firstNumber(before unit: String) -> Double? {
+            guard let re = try? NSRegularExpression(pattern: "([0-9]+(?:\\.[0-9]+)?)\\s*" + unit) else { return nil }
+            let range = NSRange(s.startIndex..., in: s)
+            guard let m = re.firstMatch(in: s, range: range),
+                  let r = Range(m.range(at: 1), in: s) else { return nil }
+            return Double(s[r])
+        }
+        if let g = firstNumber(before: "Gbps") { return g }
+        if let mbps = firstNumber(before: "Mbps") { return mbps / 1000 }
+        return 0
     }
 }
 
