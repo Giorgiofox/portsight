@@ -24,9 +24,30 @@ public struct CableRecord: Codable, Identifiable, Equatable {
     public var totalEnergyKWh: Double { totalEnergyWh / 1000 }
 }
 
+// Persistent per-charger statistics. Identified from AdapterDetails. Genuine
+// Apple/PD bricks may report a serial (per-unit); many third-party ones only
+// report watts + family/PMU/PDO, so this is model/type-level identity.
+public struct ChargerRecord: Codable, Identifiable, Equatable {
+    public var id: String { fingerprint }
+    public let fingerprint: String
+    public var name: String?              // user-assigned nickname
+    public var label: String              // "Apple 96W USB-C" / "90W charger"
+    public var descriptor: String         // "90W · 20V/4.5A"
+    public var firstSeen: Date
+    public var lastSeen: Date
+    public var sessionCount: Int
+    public var totalEnergyWh: Double
+    public var peakWatts: Double
+    public var connectedSeconds: Double
+
+    public var displayName: String { name ?? label }
+    public var totalEnergyKWh: Double { totalEnergyWh / 1000 }
+}
+
 @MainActor
 public final class CableStore: ObservableObject {
     @Published public private(set) var records: [String: CableRecord] = [:]
+    @Published public private(set) var chargers: [String: ChargerRecord] = [:]
 
     private let url: URL
     private let inMemory: Bool
@@ -51,6 +72,54 @@ public final class CableStore: ObservableObject {
 
     public var totalEnergyKWh: Double {
         records.values.reduce(0) { $0 + $1.totalEnergyWh } / 1000
+    }
+
+    public var allChargers: [ChargerRecord] {
+        chargers.values.sorted { $0.totalEnergyWh > $1.totalEnergyWh }
+    }
+
+    /// Register/refresh a charger seen now.
+    public func observeCharger(fingerprint: String, label: String, descriptor: String, now: Date) {
+        if var rec = chargers[fingerprint] {
+            let isReconnect = now.timeIntervalSince(rec.lastSeen) > 60
+            rec.lastSeen = now
+            if !descriptor.isEmpty { rec.descriptor = descriptor }
+            if isReconnect { rec.sessionCount += 1 }
+            chargers[fingerprint] = rec
+            scheduleSave()
+        } else {
+            chargers[fingerprint] = ChargerRecord(
+                fingerprint: fingerprint, name: nil, label: label, descriptor: descriptor,
+                firstSeen: now, lastSeen: now, sessionCount: 1,
+                totalEnergyWh: 0, peakWatts: 0, connectedSeconds: 0)
+            scheduleSave()
+        }
+    }
+
+    public func accumulateCharger(fingerprint: String, watts: Double, seconds: Double, now: Date) {
+        guard var rec = chargers[fingerprint] else { return }
+        rec.totalEnergyWh += watts * (seconds / 3600)
+        rec.connectedSeconds += seconds
+        rec.peakWatts = max(rec.peakWatts, watts)
+        rec.lastSeen = now
+        chargers[fingerprint] = rec
+        scheduleSave()
+    }
+
+    public func renameCharger(_ fingerprint: String, to name: String?) {
+        guard var rec = chargers[fingerprint] else { return }
+        rec.name = (name?.isEmpty ?? true) ? nil : name
+        chargers[fingerprint] = rec
+        save()
+    }
+
+    public func forgetCharger(_ fingerprint: String) {
+        chargers[fingerprint] = nil
+        save()
+    }
+
+    public func seedPreviewChargers(_ recs: [ChargerRecord]) {
+        for r in recs { chargers[r.fingerprint] = r }
     }
 
     /// Register/refresh a cable seen now. Returns true if it's a new connection
@@ -108,11 +177,19 @@ public final class CableStore: ObservableObject {
 
     // MARK: persistence
 
+    private struct Persisted: Codable {
+        var cables: [String: CableRecord]
+        var chargers: [String: ChargerRecord]
+    }
+
     private func load() {
-        guard let data = try? Data(contentsOf: url),
-              let decoded = try? JSONDecoder().decode([String: CableRecord].self, from: data)
-        else { return }
-        records = decoded
+        guard let data = try? Data(contentsOf: url) else { return }
+        if let p = try? JSONDecoder().decode(Persisted.self, from: data) {
+            records = p.cables
+            chargers = p.chargers
+        } else if let old = try? JSONDecoder().decode([String: CableRecord].self, from: data) {
+            records = old   // migrate pre-charger format
+        }
     }
 
     /// Debounced save (energy accumulates every second; don't hit disk each tick).
@@ -128,7 +205,8 @@ public final class CableStore: ObservableObject {
 
     private func save() {
         guard !inMemory else { return }
-        guard let data = try? JSONEncoder().encode(records) else { return }
+        let payload = Persisted(cables: records, chargers: chargers)
+        guard let data = try? JSONEncoder().encode(payload) else { return }
         try? data.write(to: url, options: .atomic)
     }
 }
@@ -147,5 +225,21 @@ public enum CableIdentity {
         if let w = fp.maxWatts { parts.append("\(w)W") }
         if let t = fp.type { parts.append(t) }
         return (key, fp.vendorName, parts.joined(separator: " · "))
+    }
+}
+
+public enum ChargerIdentity {
+    /// Fingerprint a charger from its AdapterDetails. nil for no external adapter.
+    public static func make(from a: AdapterInfo) -> (key: String, label: String, descriptor: String)? {
+        guard let watts = a.watts, watts > 0 else { return nil }
+        // Model/type-level key: watts + controller family/id/config (+ name if any).
+        let name = a.name ?? a.model ?? a.manufacturer ?? ""
+        let key = "chg-\(watts)-\(a.familyCode ?? 0)-\(a.adapterID ?? 0)-\(a.pmuConfiguration ?? 0)-\(name)"
+        let label = a.name ?? a.manufacturer ?? a.adapterDescription ?? "\(watts)W charger"
+        var descriptor = "\(watts)W"
+        if let v = a.voltageMV, let c = a.currentMA, v > 0, c > 0 {
+            descriptor += String(format: " · %.0fV/%.1fA", Double(v) / 1000, Double(c) / 1000)
+        }
+        return (key, label, descriptor)
     }
 }

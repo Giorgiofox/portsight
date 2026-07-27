@@ -335,6 +335,7 @@ public final class SnapshotModel: ObservableObject {
     @Published private(set) var portPower: [String: PortLivePower] = [:]
     @Published private(set) var resistance: ResistanceVM?
     @Published private(set) var connectedCableKeys: Set<String> = []
+    @Published private(set) var connectedChargerKey: String?
 
     /// Persistent per-cable statistics (energy, sessions, history).
     /// In preview/offscreen mode (Theme.flat) it's in-memory so real catalogued
@@ -349,8 +350,9 @@ public final class SnapshotModel: ObservableObject {
     private var seq = 0
     private let sampleCap = powerSampleCap
 
-    // Energy attribution: the e-markered cable currently on the charging port.
+    // Energy attribution: the e-markered cable + charger currently delivering.
     private var chargingCableKey: String?
+    private var chargingChargerKey: String?
     private var lastEnergyTick: Date?
 
     // Battery prediction (our own smoothed estimate + throttled pmset reference).
@@ -595,11 +597,19 @@ public final class SnapshotModel: ObservableObject {
         // Battery telemetry + our own smoothed prediction. pmset (a subprocess)
         // is refreshed every ~3s as a cross-reference, not every tick.
         var negotiatedMV = 0
+        chargingChargerKey = nil
         if let b = AppleSmartBatteryReader.read().battery {
             pmsetTick += 1
             if lastPmset == nil || pmsetTick % 3 == 0 { lastPmset = PmsetReader.read() }
             battery = batteryEstimator.update(b, pmset: lastPmset)
             negotiatedMV = b.adapterDetails?.voltageMV ?? 0
+            // Catalog the charger (brick) currently delivering power.
+            if !snap.onBattery, snap.externalConnected, let adapter = b.adapterDetails,
+               let id = ChargerIdentity.make(from: adapter) {
+                cableStore.observeCharger(fingerprint: id.key, label: id.label,
+                                          descriptor: id.descriptor, now: Date())
+                chargingChargerKey = id.key
+            }
         } else {
             battery = nil
         }
@@ -613,16 +623,24 @@ public final class SnapshotModel: ObservableObject {
             systemCurrentInMA: snap.systemSample.systemCurrentIn,
             charging: snap.externalConnected && !snap.onBattery)
 
-        // Attribute delivered energy to the charging cable (integrate P·dt).
+        // Attribute delivered energy to the charging cable AND charger (P·dt).
         let now = Date()
-        if let key = chargingCableKey, !snap.onBattery, snap.externalConnected {
+        if !snap.onBattery, snap.externalConnected {
             let watts = Double(snap.activePowerMW) / 1000
             if watts > 0.5, let last = lastEnergyTick {
                 let dt = min(max(now.timeIntervalSince(last), 0), 5)  // clamp sleep gaps
-                if dt > 0 { cableStore.accumulate(fingerprint: key, watts: watts, seconds: dt, now: now) }
+                if dt > 0 {
+                    if let key = chargingCableKey {
+                        cableStore.accumulate(fingerprint: key, watts: watts, seconds: dt, now: now)
+                    }
+                    if let key = chargingChargerKey {
+                        cableStore.accumulateCharger(fingerprint: key, watts: watts, seconds: dt, now: now)
+                    }
+                }
             }
         }
         lastEnergyTick = now
+        connectedChargerKey = chargingChargerKey
         lastUpdate = now
     }
 
@@ -721,7 +739,16 @@ public final class SnapshotModel: ObservableObject {
                               minutesToEmpty: nil, watts: 94)
         m.resistance = ResistanceVM(milliohms: 128, phase: .stable, sampleCount: 40)
         m.connectedCableKeys = ["a"]   // Anker desk charger shown as in use
+        m.connectedChargerKey = "chg1"
         let t0 = Date(timeIntervalSince1970: 1_710_000_000)
+        m.cableStore.seedPreviewChargers([
+            ChargerRecord(fingerprint: "chg1", name: "Desk brick", label: "96W USB-C",
+                          descriptor: "96W · 20V/4.5A", firstSeen: t0, lastSeen: Date(),
+                          sessionCount: 180, totalEnergyWh: 15_200, peakWatts: 94, connectedSeconds: 470_000),
+            ChargerRecord(fingerprint: "chg2", name: nil, label: "30W charger",
+                          descriptor: "30W · 15V/2A", firstSeen: t0, lastSeen: Date(),
+                          sessionCount: 44, totalEnergyWh: 2_300, peakWatts: 29, connectedSeconds: 90_000),
+        ])
         m.cableStore.seedPreview([
             CableRecord(fingerprint: "a", name: "Desk charger (Anker)", vendorName: "Anker",
                         descriptor: "40 Gbps · 240W · passive", firstSeen: t0, lastSeen: Date(),

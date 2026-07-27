@@ -34,6 +34,7 @@ public struct DashboardView: View {
             statsRow
             powerChartCard
             cablesSection
+            chargersSection
         }
     }
 
@@ -158,6 +159,102 @@ public struct DashboardView: View {
                 }
             }
         }
+    }
+
+    // MARK: per-charger statistics
+
+    private var sortedChargers: [ChargerRecord] {
+        store.allChargers.sorted { a, b in
+            let ca = a.fingerprint == model.connectedChargerKey
+            let cb = b.fingerprint == model.connectedChargerKey
+            if ca != cb { return ca }
+            return a.totalEnergyWh > b.totalEnergyWh
+        }
+    }
+
+    @ViewBuilder private var chargersSection: some View {
+        if !store.allChargers.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("Chargers").font(.system(.headline, design: .rounded))
+                    Chip(text: "\(store.chargers.count)", color: .secondary)
+                    Spacer()
+                }
+                ForEach(sortedChargers) { rec in
+                    ChargerRow(record: rec, store: store,
+                               isConnected: rec.fingerprint == model.connectedChargerKey)
+                }
+            }
+        }
+    }
+}
+
+// One charger's stats row.
+struct ChargerRow: View {
+    let record: ChargerRecord
+    @ObservedObject var store: CableStore
+    var isConnected: Bool = false
+    @State private var renaming = false
+    @State private var draftName = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "powerplug.fill")
+                    .foregroundStyle(isConnected ? .green : .orange)
+                Text(record.displayName).font(.system(.headline, design: .rounded))
+                if isConnected {
+                    Text("IN USE NOW")
+                        .font(.system(size: 9, weight: .heavy, design: .rounded))
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Capsule().fill(Color.green))
+                        .foregroundStyle(.black)
+                }
+                Spacer()
+                Button { draftName = record.name ?? ""; renaming = true } label: {
+                    iconChip("pencil", .secondary)
+                }.buttonStyle(.plain)
+                Button { store.forgetCharger(record.fingerprint) } label: {
+                    iconChip("trash", .red)
+                }.buttonStyle(.plain)
+            }
+            if !record.descriptor.isEmpty {
+                Text(record.descriptor).font(.caption).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 18) {
+                stat("bolt.fill", String(format: "%.3f kWh", record.totalEnergyKWh), .green)
+                stat("repeat", "\(record.sessionCount) sessions", .secondary)
+                stat("gauge.high", String(format: "%.0f W peak", record.peakWatts), .orange)
+                stat("clock", connectedLabel, .secondary)
+            }
+            .font(.system(.caption, design: .rounded))
+        }
+        .padding(14)
+        .cardSurface(stroke: isConnected ? Color.green.opacity(0.65) : Theme.cardStroke)
+        .alert("Rename charger", isPresented: $renaming) {
+            TextField("Nickname", text: $draftName)
+            Button("Save") { store.renameCharger(record.fingerprint, to: draftName) }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text(record.label) }
+    }
+
+    private func stat(_ symbol: String, _ text: String, _ color: Color) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol).foregroundStyle(color)
+            Text(text).foregroundStyle(.secondary)
+        }
+    }
+
+    private func iconChip(_ symbol: String, _ color: Color) -> some View {
+        Image(systemName: symbol).font(.caption).foregroundStyle(color)
+            .frame(width: 26, height: 22)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(0.06)))
+    }
+
+    private var connectedLabel: String {
+        let s = Int(record.connectedSeconds)
+        if s < 3600 { return "\(s / 60)m connected" }
+        return "\(s / 3600)h \(s % 3600 / 60)m connected"
     }
 }
 
