@@ -120,27 +120,48 @@ public struct ContentView: View {
     }
 
     private var footer: some View {
+        // Custom controls (not system Toggle/Button styles): they render
+        // correctly both live and in offscreen ImageRenderer screenshots.
         HStack(spacing: 10) {
-            Toggle(isOn: $launchAtLogin) {
-                Text("Launch at login").font(.caption2)
-            }
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .foregroundStyle(.secondary)
-            .onChange(of: launchAtLogin) { _, on in
-                LoginItem.setEnabled(on)
-                launchAtLogin = LoginItem.isEnabled   // reflect actual state
-            }
-            Spacer()
             Button {
-                NSApplication.shared.terminate(nil)
+                launchAtLogin.toggle()
+                LoginItem.setEnabled(launchAtLogin)
+                launchAtLogin = LoginItem.isEnabled   // reflect actual state
             } label: {
-                Label("Quit", systemImage: "power").font(.caption)
+                HStack(spacing: 6) {
+                    miniSwitch(on: launchAtLogin)
+                    Text("Launch at login").font(.caption2)
+                }
+                .foregroundStyle(.secondary)
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Button { NSApplication.shared.terminate(nil) } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "power")
+                    Text("Quit")
+                }
+                .font(.caption)
+                .padding(.horizontal, 9).padding(.vertical, 4)
+                .background(Capsule().fill(Color.white.opacity(0.08)))
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.top, 4)
+    }
+
+    private func miniSwitch(on: Bool) -> some View {
+        Capsule()
+            .fill(on ? Color.green : Color.white.opacity(0.18))
+            .frame(width: 26, height: 15)
+            .overlay(
+                Circle().fill(.white).padding(2)
+                    .frame(width: 15, height: 15)
+                    .offset(x: on ? 5.5 : -5.5)
+            )
     }
 }
 
