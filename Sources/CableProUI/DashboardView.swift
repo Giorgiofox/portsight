@@ -90,15 +90,16 @@ public struct DashboardView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("System power").font(.system(.headline, design: .rounded))
             let peak = max(model.samples.map(\.watts).max() ?? 1, Double(model.adapterWatts ?? 0), 1)
-            Chart(model.samples) { pt in
-                AreaMark(x: .value("t", pt.id), y: .value("W", pt.watts))
-                    .interpolationMethod(.catmullRom)
+            Chart(Array(model.samples.enumerated()), id: \.offset) { i, pt in
+                AreaMark(x: .value("t", i), y: .value("W", pt.watts))
+                    .interpolationMethod(.monotone)
                     .foregroundStyle(LinearGradient(colors: [.green.opacity(0.35), .green.opacity(0.02)],
                                                     startPoint: .top, endPoint: .bottom))
-                LineMark(x: .value("t", pt.id), y: .value("W", pt.watts))
-                    .interpolationMethod(.catmullRom)
+                LineMark(x: .value("t", i), y: .value("W", pt.watts))
+                    .interpolationMethod(.monotone)
                     .foregroundStyle(.green).lineStyle(.init(lineWidth: 2))
             }
+            .chartXScale(domain: 0...Double(powerSampleCap))
             .chartYScale(domain: 0...(peak * 1.15))
             .chartXAxis(.hidden)
             .frame(height: 180)

@@ -244,6 +244,69 @@ struct PortEventVM: Identifiable, Equatable {
     let severity: SpeedVM.Severity
 }
 
+/// Number of power samples retained/plotted. At 1 Hz this is the width of the
+/// live chart's time window; the chart fills left→right until it's reached.
+let powerSampleCap = 240   // ~4 minutes
+
+// Cable resistance estimate (our own, system-level). WhatCable's per-port
+// regression needs per-port telemetry that laptops don't expose, so instead we
+// regress the charger→Mac voltage drop (negotiatedV − systemV) against system
+// input current. The slope is the series resistance.
+struct ResistanceVM: Equatable {
+    enum Phase: Equatable { case notCharging, measuring(Int), needsLoad, stable, unreliable }
+    let milliohms: Double
+    let phase: Phase
+    let sampleCount: Int
+    static let target = 40
+}
+
+@MainActor
+final class ResistanceEstimator {
+    private struct S { let i: Double; let v: Double }  // current mA, drop mV
+    private var win: [S] = []
+    private let cap = 240
+    private var lastNegotiated = 0
+    private let minSamples = 15
+    private let minSpreadMA = 120.0
+
+    func update(negotiatedMV: Int, systemVoltageInMV: Int, systemCurrentInMA: Int, charging: Bool) -> ResistanceVM {
+        guard charging else { win.removeAll(); return ResistanceVM(milliohms: 0, phase: .notCharging, sampleCount: 0) }
+        if negotiatedMV != lastNegotiated { win.removeAll(); lastNegotiated = negotiatedMV }
+
+        let drop = Double(negotiatedMV - systemVoltageInMV)
+        if negotiatedMV > 0, systemCurrentInMA > 30, drop > 0 {
+            win.append(S(i: Double(systemCurrentInMA), v: drop))
+            if win.count > cap { win.removeFirst(win.count - cap) }
+        }
+        let n = win.count
+        if n < minSamples { return ResistanceVM(milliohms: 0, phase: .measuring(n), sampleCount: n) }
+
+        let currents = win.map(\.i)
+        let spread = (currents.max() ?? 0) - (currents.min() ?? 0)
+        if spread < minSpreadMA { return ResistanceVM(milliohms: 0, phase: .needsLoad, sampleCount: n) }
+
+        // Least-squares fit: drop = slope·current + intercept. slope (mV/mA) = Ω.
+        let cnt = Double(n)
+        let mi = currents.reduce(0, +) / cnt
+        let mv = win.map(\.v).reduce(0, +) / cnt
+        let sii = win.reduce(0) { $0 + pow($1.i - mi, 2) }
+        guard sii > 0 else { return ResistanceVM(milliohms: 0, phase: .needsLoad, sampleCount: n) }
+        let siv = win.reduce(0) { $0 + ($1.i - mi) * ($1.v - mv) }
+        let slope = siv / sii
+        let intercept = mv - slope * mi
+        let total = win.reduce(0) { $0 + pow($1.v - mv, 2) }
+        let residual = win.reduce(0) { let p = slope * $1.i + intercept; return $0 + pow($1.v - p, 2) }
+        let r2 = total > 0 ? max(0, 1 - residual / total) : 0
+        let mOhm = max(0, slope * 1000)   // mV/mA → mΩ
+
+        let phase: ResistanceVM.Phase
+        if n < ResistanceVM.target { phase = .measuring(n) }
+        else if r2 >= 0.7 { phase = .stable }
+        else { phase = .unreliable }
+        return ResistanceVM(milliohms: mOhm, phase: phase, sampleCount: n)
+    }
+}
+
 @MainActor
 public final class SnapshotModel: ObservableObject {
     @Published private(set) var ports: [PortVM] = []
@@ -255,6 +318,7 @@ public final class SnapshotModel: ObservableObject {
     @Published private(set) var battery: BatteryVM?
     @Published private(set) var displays: [DisplayVM] = []
     @Published private(set) var portPower: [String: PortLivePower] = [:]
+    @Published private(set) var resistance: ResistanceVM?
 
     /// Persistent per-cable statistics (energy, sessions, history).
     /// In preview/offscreen mode (Theme.flat) it's in-memory so real catalogued
@@ -267,7 +331,7 @@ public final class SnapshotModel: ObservableObject {
     private let liquidWatcher = LiquidDetectionWatcher()
     private var started = false
     private var seq = 0
-    private let sampleCap = 120   // ~2 min at 1 Hz
+    private let sampleCap = powerSampleCap
 
     // Energy attribution: the e-markered cable currently on the charging port.
     private var chargingCableKey: String?
@@ -277,6 +341,9 @@ public final class SnapshotModel: ObservableObject {
     private let batteryEstimator = BatteryEstimator()
     private var lastPmset: PmsetInfo?
     private var pmsetTick = 0
+
+    // Cable resistance (our own system-level regression).
+    private let resistanceEstimator = ResistanceEstimator()
 
     // Latest inputs; ports are rebuilt whenever any of these changes so the
     // separate watcher clocks (cable / diagnostics / liquid) stay merged.
@@ -497,13 +564,24 @@ public final class SnapshotModel: ObservableObject {
         portPower = pp
         // Battery telemetry + our own smoothed prediction. pmset (a subprocess)
         // is refreshed every ~3s as a cross-reference, not every tick.
+        var negotiatedMV = 0
         if let b = AppleSmartBatteryReader.read().battery {
             pmsetTick += 1
             if lastPmset == nil || pmsetTick % 3 == 0 { lastPmset = PmsetReader.read() }
             battery = batteryEstimator.update(b, pmset: lastPmset)
+            negotiatedMV = b.adapterDetails?.voltageMV ?? 0
         } else {
             battery = nil
         }
+
+        // Our own cable-resistance estimate: regress (negotiatedV − systemV)
+        // drop against system input current. Works on laptops where WhatCable's
+        // per-port telemetry is unavailable.
+        resistance = resistanceEstimator.update(
+            negotiatedMV: negotiatedMV,
+            systemVoltageInMV: snap.systemSample.systemVoltageIn,
+            systemCurrentInMA: snap.systemSample.systemCurrentIn,
+            charging: snap.externalConnected && !snap.onBattery)
 
         // Attribute delivered energy to the charging cable (integrate P·dt).
         let now = Date()
@@ -584,9 +662,9 @@ public final class SnapshotModel: ObservableObject {
                    speed: nil,
                    health: noHealth, pdOptions: [], pdWinning: nil),
         ]
-        // Rising-then-steady power curve.
-        m.samples = (0..<60).map { i in
-            let w = i < 20 ? Double(i) * 4.5 : 88 + Double((i * 7) % 11)
+        // Rising-then-steady power curve filling the whole window.
+        m.samples = (0..<powerSampleCap).map { i in
+            let w = i < 30 ? Double(i) * 3.0 : 88 + Double((i * 7) % 13)
             return PowerPoint(id: i, watts: w)
         }
         m.power = PowerMonitorSnapshot(
@@ -611,6 +689,7 @@ public final class SnapshotModel: ObservableObject {
         m.battery = BatteryVM(soc: 62, isCharging: true, externalConnected: true,
                               fullyCharged: false, minutesToFull: 47, minutesTo80: 18,
                               minutesToEmpty: nil, watts: 94)
+        m.resistance = ResistanceVM(milliohms: 128, phase: .stable, sampleCount: 40)
         let t0 = Date(timeIntervalSince1970: 1_710_000_000)
         m.cableStore.seedPreview([
             CableRecord(fingerprint: "a", name: "Desk charger (Anker)", vendorName: "Anker",

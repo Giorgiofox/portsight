@@ -8,6 +8,7 @@ struct PowerCard: View {
     let samples: [PowerPoint]
     let adapterWatts: Int?
     var battery: BatteryVM? = nil
+    var resistance: ResistanceVM? = nil
 
     private var onBattery: Bool { power?.onBattery ?? false }
     private var accent: Color { onBattery ? .yellow : .green }
@@ -53,7 +54,7 @@ struct PowerCard: View {
 
             chart
 
-            if let r = power?.resistanceEstimate {
+            if let r = resistance {
                 resistanceRow(r)
             }
         }
@@ -138,23 +139,25 @@ struct PowerCard: View {
 
     @ViewBuilder private var chart: some View {
         let peak = max(samples.map(\.watts).max() ?? 1, Double(adapterWatts ?? 0), 1)
-        Chart(samples) { pt in
-            AreaMark(x: .value("t", pt.id), y: .value("W", pt.watts))
-                .interpolationMethod(.catmullRom)
+        // Plot by position with a FIXED x-domain so the history builds up
+        // left→right (fills the window over ~4 min) instead of a fast scroll.
+        Chart(Array(samples.enumerated()), id: \.offset) { i, pt in
+            AreaMark(x: .value("t", i), y: .value("W", pt.watts))
+                .interpolationMethod(.monotone)
                 .foregroundStyle(
                     LinearGradient(colors: [accent.opacity(0.35), accent.opacity(0.02)],
                                    startPoint: .top, endPoint: .bottom))
-            LineMark(x: .value("t", pt.id), y: .value("W", pt.watts))
-                .interpolationMethod(.catmullRom)
+            LineMark(x: .value("t", i), y: .value("W", pt.watts))
+                .interpolationMethod(.monotone)
                 .foregroundStyle(accent)
                 .lineStyle(.init(lineWidth: 2))
         }
+        .chartXScale(domain: 0...Double(powerSampleCap))
         .chartYScale(domain: 0...(peak * 1.15))
         .chartXAxis(.hidden)
         .chartYAxis(.hidden)
         .chartLegend(.hidden)
         .frame(height: 64)
-        .animation(.easeOut(duration: 0.4), value: samples)
         .overlay(alignment: .center) {
             if samples.isEmpty {
                 Text("collecting samples…")
@@ -163,17 +166,14 @@ struct PowerCard: View {
         }
     }
 
-    private func resistanceRow(_ r: CableResistanceEstimate) -> some View {
-        // Resistance is only measurable while charging (current must flow
-        // through the cable). Be explicit rather than showing a stuck "measuring…".
-        let charging = (power?.externalConnected ?? false) && !onBattery
+    private func resistanceRow(_ r: ResistanceVM) -> some View {
         let (text, color): (String, Color) = {
-            guard charging else { return ("plug in charger to measure", .secondary) }
-            switch r.status {
-            case .stable:       return (String(format: "~%.0f mΩ", r.milliohms), .green)
-            case .converging:   return ("measuring… (\(r.sampleCount)/30)", .yellow)
-            case .insufficient: return ("measuring… (\(r.sampleCount)/10)", .secondary)
-            case .unreliable:   return ("needs a varying charge load", .orange)
+            switch r.phase {
+            case .notCharging:      return ("plug in charger to measure", .secondary)
+            case .measuring(let n): return ("measuring… (\(n)/\(ResistanceVM.target))", .yellow)
+            case .needsLoad:        return ("needs a varying charge load", .orange)
+            case .stable:           return (String(format: "~%.0f mΩ", r.milliohms), .green)
+            case .unreliable:       return ("unreliable — vary the load", .orange)
             }
         }()
         return HStack(spacing: 6) {

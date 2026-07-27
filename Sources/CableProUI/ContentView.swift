@@ -35,7 +35,8 @@ public struct ContentView: View {
             PowerCard(power: model.power,
                       samples: model.samples,
                       adapterWatts: model.adapterWatts,
-                      battery: model.battery)
+                      battery: model.battery,
+                      resistance: model.resistance)
             if !model.displays.isEmpty {
                 sectionHeader("Displays", count: model.displays.count)
                 ForEach(model.displays) { DisplayCard(display: $0) }

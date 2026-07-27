@@ -43,7 +43,7 @@ public struct PowerMonitorWindowView: View {
 
                 chart
 
-                if let r = model.power?.resistanceEstimate, r.status == .stable {
+                if let r = model.resistance, case .stable = r.phase {
                     Label(String(format: "Cable resistance ≈ %.0f mΩ", r.milliohms),
                           systemImage: "wave.3.right")
                         .font(.system(.callout, design: .rounded))
@@ -69,15 +69,16 @@ public struct PowerMonitorWindowView: View {
 
     @ViewBuilder private var chart: some View {
         let peak = max(model.samples.map(\.watts).max() ?? 1, Double(model.adapterWatts ?? 0), 1)
-        Chart(model.samples) { pt in
-            AreaMark(x: .value("t", pt.id), y: .value("W", pt.watts))
-                .interpolationMethod(.catmullRom)
+        Chart(Array(model.samples.enumerated()), id: \.offset) { i, pt in
+            AreaMark(x: .value("t", i), y: .value("W", pt.watts))
+                .interpolationMethod(.monotone)
                 .foregroundStyle(LinearGradient(colors: [accent.opacity(0.35), accent.opacity(0.02)],
                                                 startPoint: .top, endPoint: .bottom))
-            LineMark(x: .value("t", pt.id), y: .value("W", pt.watts))
-                .interpolationMethod(.catmullRom)
+            LineMark(x: .value("t", i), y: .value("W", pt.watts))
+                .interpolationMethod(.monotone)
                 .foregroundStyle(accent).lineStyle(.init(lineWidth: 2.5))
         }
+        .chartXScale(domain: 0...Double(powerSampleCap))
         .chartYScale(domain: 0...(peak * 1.15))
         .chartXAxis(.hidden)
         .frame(minHeight: 220)
