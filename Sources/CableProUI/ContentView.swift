@@ -5,6 +5,9 @@ public struct ContentView: View {
     var live: Bool = true
     var scroll: Bool = true
     @State private var launchAtLogin = LoginItem.isEnabled
+    @State private var showPorts = true
+    @State private var showDisplays = true
+    @State private var showChargers = true
     @Environment(\.openWindow) private var openWindow
 
     public init(model: SnapshotModel, live: Bool = true, scroll: Bool = true) {
@@ -37,14 +40,29 @@ public struct ContentView: View {
                       adapterWatts: model.adapterWatts,
                       battery: model.battery,
                       resistance: model.resistance)
+
+            section("Ports", count: model.ports.count, expanded: $showPorts,
+                    accessory: model.isConnected ? AnyView(activeTag) : nil) {
+                ForEach(model.ports) { port in
+                    PortCard(vm: port, livePower: port.portKey.flatMap { model.portPower[$0] })
+                }
+            }
+
             if !model.displays.isEmpty {
-                sectionHeader("Displays", count: model.displays.count)
-                ForEach(model.displays) { DisplayCard(display: $0) }
+                section("Displays", count: model.displays.count, expanded: $showDisplays) {
+                    ForEach(model.displays) { DisplayCard(display: $0) }
+                }
             }
-            portsHeader
-            ForEach(model.ports) { port in
-                PortCard(vm: port, livePower: port.portKey.flatMap { model.portPower[$0] })
+
+            if !model.cableStore.allChargers.isEmpty {
+                section("Chargers", count: model.cableStore.chargers.count, expanded: $showChargers) {
+                    ForEach(sortedChargers) { rec in
+                        ChargerMiniRow(record: rec,
+                                       isConnected: rec.fingerprint == model.connectedChargerKey)
+                    }
+                }
             }
+
             HStack(spacing: 8) {
                 openButton("Dashboard", "chart.xyaxis.line", "dashboard")
                 openButton("Power Monitor", "bolt.fill", "power-monitor")
@@ -52,6 +70,46 @@ public struct ContentView: View {
             .padding(.top, 4)
             footer
         }
+    }
+
+    private var sortedChargers: [ChargerRecord] {
+        model.cableStore.allChargers.sorted { a, b in
+            let ca = a.fingerprint == model.connectedChargerKey
+            let cb = b.fingerprint == model.connectedChargerKey
+            if ca != cb { return ca }
+            return a.totalEnergyWh > b.totalEnergyWh
+        }
+    }
+
+    private var activeTag: some View {
+        Label("Active", systemImage: "circle.fill")
+            .font(.caption2).foregroundStyle(.green)
+            .labelStyle(.titleAndIcon).imageScale(.small)
+    }
+
+    // A collapsible section: tappable header (chevron + title + count) over content.
+    @ViewBuilder private func section<Content: View>(
+        _ title: String, count: Int, expanded: Binding<Bool>,
+        accessory: AnyView? = nil, @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.wrappedValue.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: expanded.wrappedValue ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(title).font(.system(.headline, design: .rounded))
+                    Chip(text: "\(count)", color: .secondary)
+                    Spacer()
+                    if let accessory { accessory }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded.wrappedValue { content() }
+        }
+        .padding(.top, 2)
     }
 
     private var header: some View {
@@ -74,30 +132,6 @@ public struct ContentView: View {
             Spacer()
             LiveDot(date: model.lastUpdate)
         }
-    }
-
-    private func sectionHeader(_ title: String, count: Int) -> some View {
-        HStack {
-            Text(title).font(.system(.headline, design: .rounded))
-            Chip(text: "\(count)", color: .secondary)
-            Spacer()
-        }
-        .padding(.top, 2)
-    }
-
-    private var portsHeader: some View {
-        HStack {
-            Text("Ports").font(.system(.headline, design: .rounded))
-            Chip(text: "\(model.ports.count)", color: .secondary)
-            Spacer()
-            if model.isConnected {
-                Label("Active", systemImage: "circle.fill")
-                    .font(.caption2).foregroundStyle(.green)
-                    .labelStyle(.titleAndIcon)
-                    .imageScale(.small)
-            }
-        }
-        .padding(.top, 2)
     }
 
     private func openButton(_ title: String, _ symbol: String, _ id: String) -> some View {
@@ -162,6 +196,42 @@ public struct ContentView: View {
                     .frame(width: 15, height: 15)
                     .offset(x: on ? 5.5 : -5.5)
             )
+    }
+}
+
+// Compact charger row for the popover (full detail lives in the dashboard).
+struct ChargerMiniRow: View {
+    let record: ChargerRecord
+    var isConnected: Bool = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "powerplug.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(isConnected ? .green : .orange)
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill((isConnected ? Color.green : .orange).opacity(0.15)))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(record.displayName)
+                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                    if isConnected {
+                        Text("IN USE")
+                            .font(.system(size: 8, weight: .heavy, design: .rounded))
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(Capsule().fill(Color.green)).foregroundStyle(.black)
+                    }
+                }
+                Text(record.descriptor).font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Text(String(format: "%.3f kWh", record.totalEnergyKWh))
+                .font(.system(.caption, design: .rounded).weight(.semibold))
+                .monospacedDigit().foregroundStyle(.green)
+        }
+        .padding(12)
+        .cardSurface(stroke: isConnected ? Color.green.opacity(0.6) : Theme.cardStroke)
     }
 }
 
