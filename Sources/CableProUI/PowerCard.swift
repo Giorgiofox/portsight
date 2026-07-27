@@ -173,7 +173,8 @@ struct PowerCard: View {
             case .measuring(let n): return ("measuring… (\(n)/\(ResistanceVM.target))", .yellow)
             case .needsLoad:        return ("needs a varying charge load", .orange)
             case .stable:           return (String(format: "~%.0f mΩ", r.milliohms), .green)
-            case .unreliable:       return ("unreliable — vary the load", .orange)
+            case .approx:           return (String(format: "~%.0f mΩ (approx)", r.milliohms), .yellow)
+            case .unreliable:       return ("not reliably measurable on this Mac", .secondary)
             }
         }()
         return HStack(spacing: 6) {

@@ -253,7 +253,7 @@ let powerSampleCap = 240   // ~4 minutes
 // regress the charger→Mac voltage drop (negotiatedV − systemV) against system
 // input current. The slope is the series resistance.
 struct ResistanceVM: Equatable {
-    enum Phase: Equatable { case notCharging, measuring(Int), needsLoad, stable, unreliable }
+    enum Phase: Equatable { case notCharging, measuring(Int), needsLoad, stable, approx, unreliable }
     let milliohms: Double
     let phase: Phase
     let sampleCount: Int
@@ -301,8 +301,9 @@ final class ResistanceEstimator {
 
         let phase: ResistanceVM.Phase
         if n < ResistanceVM.target { phase = .measuring(n) }
-        else if r2 >= 0.7 { phase = .stable }
-        else { phase = .unreliable }
+        else if r2 >= 0.85 { phase = .stable }
+        else if r2 >= 0.55 { phase = .approx }
+        else { phase = .unreliable }   // signal too well-regulated/noisy to fit
         return ResistanceVM(milliohms: mOhm, phase: phase, sampleCount: n)
     }
 }
