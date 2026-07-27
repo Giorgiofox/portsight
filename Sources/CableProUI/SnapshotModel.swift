@@ -257,7 +257,9 @@ public final class SnapshotModel: ObservableObject {
     @Published private(set) var portPower: [String: PortLivePower] = [:]
 
     /// Persistent per-cable statistics (energy, sessions, history).
-    public let cableStore = CableStore()
+    /// In preview/offscreen mode (Theme.flat) it's in-memory so real catalogued
+    /// cables never leak into rendered screenshots.
+    public let cableStore = CableStore(inMemory: Theme.flat)
 
     private let provider = makeDefaultSnapshotProvider()
     private let powerWatcher = PowerTelemetryWatcher()

@@ -29,14 +29,20 @@ public final class CableStore: ObservableObject {
     @Published public private(set) var records: [String: CableRecord] = [:]
 
     private let url: URL
+    private let inMemory: Bool
     private var saveScheduled = false
 
-    public init() {
+    /// `inMemory` skips disk load/save — used for offscreen previews so real
+    /// catalogued cables never leak into rendered screenshots.
+    public init(inMemory: Bool = false) {
+        self.inMemory = inMemory
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("PortSight", isDirectory: true)
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        if !inMemory {
+            try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        }
         url = base.appendingPathComponent("cables.json")
-        load()
+        if !inMemory { load() }
     }
 
     public var all: [CableRecord] {
@@ -111,7 +117,7 @@ public final class CableStore: ObservableObject {
 
     /// Debounced save (energy accumulates every second; don't hit disk each tick).
     private func scheduleSave() {
-        guard !saveScheduled else { return }
+        guard !inMemory, !saveScheduled else { return }
         saveScheduled = true
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
@@ -121,6 +127,7 @@ public final class CableStore: ObservableObject {
     }
 
     private func save() {
+        guard !inMemory else { return }
         guard let data = try? JSONEncoder().encode(records) else { return }
         try? data.write(to: url, options: .atomic)
     }

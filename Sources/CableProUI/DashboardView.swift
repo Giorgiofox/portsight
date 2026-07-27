@@ -179,7 +179,11 @@ struct CableRow: View {
                 stat("bolt.fill", String(format: "%.3f kWh", record.totalEnergyKWh), .green)
                 stat("repeat", "\(record.connectionCount) sessions", .secondary)
                 stat("gauge.high", String(format: "%.0f W peak", record.peakWatts), .orange)
-                stat("speedometer", "\(Int(record.maxSpeedGbps.rounded()))G max", .purple)
+                if record.maxSpeedGbps >= 1 {
+                    stat("speedometer", "\(Int(record.maxSpeedGbps.rounded()))G max", .purple)
+                } else {
+                    stat("bolt.fill", "charge-only", .secondary)
+                }
                 stat("clock", connectedLabel, .secondary)
             }
             .font(.system(.caption, design: .rounded))
