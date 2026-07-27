@@ -6,6 +6,7 @@ struct PortCard: View {
     var livePower: PortLivePower? = nil
     // Collapsed by default live; expanded in preview (flat) so the render shows it.
     @State private var expanded = Theme.flat
+    @State private var showPins = false
 
     private var s: PortSummary { vm.summary }
     private var accent: Color { s.status.accent }
@@ -114,9 +115,23 @@ struct PortCard: View {
 
             if expanded {
                 if !vm.devices.isEmpty { deviceTree }
-                if let pins = vm.pins { PinDiagramView(diagram: pins) }
                 if let vdo = vm.vdo { VDOInspectorView(info: vdo) }
                 if !vm.events.isEmpty { eventTrace }
+                if let pins = vm.pins {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Button { withAnimation(.easeInOut(duration: 0.15)) { showPins.toggle() } } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: showPins ? "chevron.down" : "chevron.right")
+                                Text("Connector pinout").fontWeight(.semibold)
+                                Spacer()
+                            }
+                            .font(.system(.caption2, design: .rounded))
+                            .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        if showPins { PinDiagramView(diagram: pins) }
+                    }
+                }
             }
         }
     }
